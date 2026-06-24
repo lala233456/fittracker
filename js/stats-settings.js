@@ -1,4 +1,4 @@
-// ===== 统计页面 =====
+// ===== 统计页面（增强版 - 按动作分类统计） =====
 async function renderStats() {
   const main = document.getElementById('appMain');
   const tab = State.statsTab;
@@ -31,6 +31,7 @@ async function loadStatsBody(tab) {
   const today = Utils.today();
   const allRecords = await DB.records.getAll();
   const allCheckins = await DB.checkins.getAll();
+  const allPlans = await DB.plans.getAll();
 
   let startDate, endDate = today;
   const now = new Date();
@@ -39,14 +40,9 @@ async function loadStatsBody(tab) {
     const dayOfWeek = now.getDay();
     const start = new Date(now);
     start.setDate(now.getDate() - dayOfWeek);
-    const sy = start.getFullYear();
-    const sm = String(start.getMonth()+1).padStart(2,'0');
-    const sd = String(start.getDate()).padStart(2,'0');
-    startDate = `${sy}-${sm}-${sd}`;
+    startDate = `${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,'0')}-${String(start.getDate()).padStart(2,'0')}`;
   } else if (tab === 'month') {
-    const yr = now.getFullYear();
-    const mo = String(now.getMonth()+1).padStart(2,'0');
-    startDate = `${yr}-${mo}-01`;
+    startDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
   } else {
     startDate = `${now.getFullYear()}-01-01`;
   }
@@ -76,6 +72,50 @@ async function loadStatsBody(tab) {
     } else { curStreak = 0; prevDate = null; }
   }
 
+  // ===== 按动作分类统计 =====
+  const exerciseStats = {};
+  for (const r of filteredRecords) {
+    const plan = allPlans.find(p => p.id === r.planId);
+    const setsMap = r.setsMap || {};
+    for (const [exIdStr, val] of Object.entries(setsMap)) {
+      const ex = plan ? plan.exercises.find(e => String(e.id) === exIdStr) : null;
+      const exName = val.exName || (ex ? ex.name : '未知动作');
+      let doneSets, doneRepsPerSet;
+      if (typeof val === 'number') {
+        doneSets = val;
+        doneRepsPerSet = [];
+      } else {
+        doneSets = val.doneSets || 0;
+        doneRepsPerSet = val.doneRepsPerSet || [];
+      }
+      if (!exerciseStats[exName]) {
+        exerciseStats[exName] = { totalSets: 0, totalReps: 0, sessions: 0, weight: val.weight || (ex ? ex.weight : 0) };
+      }
+      exerciseStats[exName].totalSets += doneSets;
+      exerciseStats[exName].totalReps += doneRepsPerSet.reduce((a,b)=>a+b, 0) || (doneSets * (val.reps || (ex ? ex.reps : 10)));
+      exerciseStats[exName].sessions++;
+    }
+  }
+
+  // 排序：按总组数降序
+  const sortedExercises = Object.entries(exerciseStats)
+    .sort((a, b) => b[1].totalSets - a[1].totalSets);
+
+  const exerciseListHtml = sortedExercises.length > 0
+    ? sortedExercises.map(([name, stats]) => `
+        <div class="exercise-stat-row">
+          <div class="exercise-stat-name">${name}</div>
+          <div class="exercise-stat-bars">
+            <div class="exercise-stat-bar" style="width:${Math.min(100, Math.round(stats.totalSets / Math.max(...sortedExercises.map(([,s])=>s.totalSets), 1) * 100))}%"></div>
+          </div>
+          <div class="exercise-stat-nums">
+            <span class="ex-stat-sets">${stats.totalSets}组</span>
+            <span class="ex-stat-reps">${stats.totalReps}次</span>
+            ${stats.weight ? `<span class="ex-stat-weight">${stats.weight}kg</span>` : ''}
+          </div>
+        </div>`).join('')
+    : '<div style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px">暂无动作数据</div>';
+
   const yearHeatmap = tab === 'year' ? `
     <div class="chart-card">
       <div class="chart-title">全年训练热力图</div>
@@ -102,7 +142,15 @@ async function loadStatsBody(tab) {
       </div>
     </div>
     <div class="chart-card">
-      <div class="chart-title">训练完成计划数</div>
+      <div class="chart-title">训练动作统计</div>
+      <div class="exercise-stats-list">${exerciseListHtml}</div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">各动作组数占比</div>
+      <div class="chart-wrap"><canvas id="exercisePieChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">训练频率</div>
       <div class="chart-wrap"><canvas id="statsChart"></canvas></div>
     </div>
     <div class="chart-card">
@@ -119,7 +167,52 @@ async function loadStatsBody(tab) {
     } else {
       renderYearCharts(allRecords, allCheckins, now.getFullYear());
     }
+    // 动作占比饼图
+    drawExercisePieChart(sortedExercises);
   }, 50);
+}
+
+function drawExercisePieChart(sortedExercises) {
+  const canvas = document.getElementById('exercisePieChart');
+  if (!canvas || sortedExercises.length === 0) return;
+  if (canvas._chartInstance) canvas._chartInstance.destroy();
+
+  const labels = sortedExercises.map(([name]) => name);
+  const data = sortedExercises.map(([, stats]) => stats.totalSets);
+  const colors = [
+    'rgba(99,102,241,0.8)', 'rgba(168,85,247,0.8)', 'rgba(34,197,94,0.8)',
+    'rgba(245,158,11,0.8)', 'rgba(239,68,68,0.8)', 'rgba(14,165,233,0.8)',
+    'rgba(236,72,153,0.8)', 'rgba(20,184,166,0.8)', 'rgba(251,146,60,0.8)',
+    'rgba(132,204,22,0.8)'
+  ];
+
+  canvas._chartInstance = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: colors.slice(0, data.length),
+        borderWidth: 2,
+        borderColor: isDark() ? '#1e293b' : '#ffffff'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            color: isDark() ? '#94a3b8' : '#64748b',
+            font: { size: 11 },
+            boxWidth: 12,
+            padding: 8
+          }
+        }
+      },
+      cutout: '55%'
+    }
+  });
 }
 
 function renderWeekCharts(records, checkins, startDate) {
@@ -127,6 +220,7 @@ function renderWeekCharts(records, checkins, startDate) {
   const trainingData = [];
   const setsData = [];
   const dayNames = ['周日','周一','周二','周三','周四','周五','周六'];
+
   for (let i = 0; i < 7; i++) {
     const date = Utils.dateAdd(startDate, i);
     const d = new Date(date);
@@ -229,15 +323,8 @@ function drawBarChart(canvasId, labels, data, label) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        y: {
-          beginAtZero: true,
-          grid: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
-          ticks: { color: isDark() ? '#94a3b8' : '#64748b', stepSize: 1 }
-        },
-        x: {
-          grid: { display: false },
-          ticks: { color: isDark() ? '#94a3b8' : '#64748b', maxRotation: 0 }
-        }
+        y: { beginAtZero: true, grid: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, ticks: { color: isDark() ? '#94a3b8' : '#64748b', stepSize: 1 } },
+        x: { grid: { display: false }, ticks: { color: isDark() ? '#94a3b8' : '#64748b', maxRotation: 0 } }
       }
     }
   });
@@ -266,15 +353,8 @@ function drawLineChart(canvasId, labels, data, label) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        y: {
-          beginAtZero: true,
-          grid: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
-          ticks: { color: isDark() ? '#94a3b8' : '#64748b' }
-        },
-        x: {
-          grid: { display: false },
-          ticks: { color: isDark() ? '#94a3b8' : '#64748b', maxRotation: 0 }
-        }
+        y: { beginAtZero: true, grid: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, ticks: { color: isDark() ? '#94a3b8' : '#64748b' } },
+        x: { grid: { display: false }, ticks: { color: isDark() ? '#94a3b8' : '#64748b', maxRotation: 0 } }
       }
     }
   });
@@ -340,7 +420,7 @@ async function renderSettings() {
           <div class="settings-icon" style="background:rgba(99,102,241,0.1)">💪</div>
           <div class="settings-info">
             <div class="settings-label">FitTracker</div>
-            <div class="settings-desc">版本 1.0.0 · 本地存储，数据安全</div>
+            <div class="settings-desc">版本 2.0.0 · 动作打卡版 · 本地存储，数据安全</div>
           </div>
         </div>
       </div>
@@ -431,6 +511,7 @@ async function confirmClearAll() {
   Modal.close();
   showToast('数据已清除');
   State.activeSessions = {};
+  State.currentExerciseView = null;
   await renderSettings();
 }
 

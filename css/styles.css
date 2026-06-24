@@ -772,3 +772,320 @@ a { text-decoration: none; color: inherit; }
 }
 .confirm-actions { display: flex; gap: 10px; }
 .confirm-actions .btn { flex: 1; }
+
+/* ===== Exercise Tile (可点击动作卡片) ===== */
+.exercise-tiles { display: flex; flex-direction: column; gap: 8px; }
+
+.exercise-tile {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  gap: 12px;
+}
+.exercise-tile:active { transform: scale(0.97); background: var(--bg-secondary); }
+.exercise-tile.completed {
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.2);
+  cursor: default;
+}
+.exercise-tile.completed .exercise-tile-name {
+  text-decoration: line-through; color: var(--text-muted);
+}
+.exercise-tile-left {
+  display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;
+}
+.exercise-tile-check {
+  width: 24px; height: 24px; min-width: 24px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+  color: white;
+  transition: all 0.2s ease;
+}
+.exercise-tile-check.checked {
+  background: var(--success);
+  border-color: var(--success);
+  font-size: 11px;
+}
+.exercise-tile-info { flex: 1; min-width: 0; }
+.exercise-tile-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.exercise-tile-detail { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.exercise-tile-right {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.exercise-tile-progress-mini {
+  width: 32px; height: 6px;
+  background: var(--border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.mini-progress-bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: var(--radius-full);
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.exercise-tile-sets { font-size: 13px; font-weight: 700; color: var(--primary); }
+.exercise-tile-go {
+  font-size: 20px; color: var(--text-muted);
+  font-weight: 300;
+}
+
+/* ===== All Done Button (绿色全完成) ===== */
+.checkin-btn.all-done-btn {
+  background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
+  box-shadow: 0 4px 12px rgba(34,197,94,0.35);
+}
+
+/* ===== Exercise Detail Page (动作打卡详情页) ===== */
+.exercise-detail-page {
+  padding-bottom: 40px;
+}
+
+.exercise-detail-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.btn-back {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 600;
+  color: var(--primary);
+  padding: 8px 0;
+}
+.back-arrow { font-size: 18px; font-weight: 700; }
+
+.exercise-detail-progress-badge {
+  font-size: 13px; font-weight: 600;
+  color: var(--primary);
+  background: rgba(99,102,241,0.12);
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+}
+
+.exercise-detail-name {
+  font-size: 28px; font-weight: 800;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.exercise-detail-spec {
+  font-size: 16px; color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+/* 进度圆环 */
+.exercise-ring-wrap {
+  display: flex; justify-content: center;
+  margin-bottom: 24px;
+}
+
+.exercise-ring {
+  width: 120px; height: 120px;
+  border-radius: 50%;
+  background: conic-gradient(var(--primary) 0% calc(var(--ring-pct, 0%)), var(--bg-secondary) calc(var(--ring-pct, 0%)) 100%);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+/* 使用 attr data-progress 设置圆环百分比 */
+.exercise-ring[data-progress] {
+  --ring-pct: attr(data-progress %);
+  /* fallback: 通过内联style设置，JS会直接设置background */
+}
+
+.exercise-ring-inner {
+  width: 90px; height: 90px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  box-shadow: var(--shadow);
+}
+
+.exercise-ring-value {
+  font-size: 36px; font-weight: 800; color: var(--primary); line-height: 1;
+}
+.exercise-ring-label {
+  font-size: 14px; color: var(--text-muted); margin-top: 2px;
+}
+
+/* 已完成的组列表 */
+.sets-done-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.sets-done-title {
+  font-size: 13px; font-weight: 700; color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.set-done-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.set-done-row:last-child { border-bottom: none; }
+.set-done-num { font-weight: 600; color: var(--text); }
+.set-done-reps { color: var(--success); font-weight: 500; }
+
+/* 当前组打卡大按钮 */
+.current-set-section {
+  margin-bottom: 24px;
+}
+
+.current-set-label {
+  font-size: 16px; font-weight: 700; color: var(--text);
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.big-checkin-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 100%;
+  padding: 28px 20px;
+  background: linear-gradient(135deg, var(--primary) 0%, #a855f7 100%);
+  border-radius: var(--radius-lg);
+  color: white;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.4);
+  transition: all 0.2s ease;
+  min-height: 120px;
+}
+.big-checkin-btn:active {
+  transform: scale(0.95);
+  box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+}
+.big-checkin-icon { font-size: 40px; margin-bottom: 8px; }
+.big-checkin-text { font-size: 22px; font-weight: 800; }
+.big-checkin-sub { font-size: 14px; opacity: 0.85; margin-top: 4px; }
+
+/* 全部完成区域 */
+.all-sets-done-section {
+  text-align: center;
+  padding: 20px;
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.2);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+}
+.all-sets-done-icon { font-size: 48px; }
+.all-sets-done-text { font-size: 18px; font-weight: 700; color: var(--success); margin: 12px 0; }
+
+/* 动作快速导航 */
+.exercise-nav-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.exercise-nav-title {
+  font-size: 13px; font-weight: 700; color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.exercise-nav-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.exercise-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 14px;
+}
+.exercise-nav-item:active { transform: scale(0.97); }
+.exercise-nav-item.current {
+  background: rgba(99,102,241,0.12);
+  border: 1px solid rgba(99,102,241,0.3);
+}
+.exercise-nav-item.done {
+  background: rgba(34,197,94,0.08);
+}
+.nav-item-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.nav-item-dot.done { background: var(--success); }
+.nav-item-name { font-weight: 600; flex: 1; }
+.nav-item-sets { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+
+/* ===== 历史记录动作详情（增强版） ===== */
+.history-exercise-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.history-exercise-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: 13px;
+}
+.history-exercise-row.done {
+  background: rgba(34,197,94,0.08);
+}
+.history-exercise-row.partial {
+  background: rgba(245,158,11,0.08);
+}
+.history-ex-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--warning);
+}
+.history-ex-dot.done { background: var(--success); }
+.history-ex-name { font-weight: 600; flex: 1; color: var(--text); }
+.history-ex-detail { font-size: 12px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; }
+
+/* ===== 统计 - 动作分类排行 ===== */
+.exercise-stats-list {
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+.exercise-stat-row {
+  display: flex; align-items: center; gap: 10px;
+}
+.exercise-stat-name {
+  font-size: 14px; font-weight: 600;
+  min-width: 80px;
+  color: var(--text);
+}
+.exercise-stat-bars {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.exercise-stat-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-light));
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+.exercise-stat-nums {
+  display: flex; gap: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ex-stat-sets { font-weight: 700; color: var(--primary); }
+.ex-stat-reps { color: var(--text-muted); }
+.ex-stat-weight { color: var(--text-secondary); }

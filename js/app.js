@@ -1,5 +1,6 @@
 /**
- * FitTracker - 主应用逻辑
+ * FitTracker - 主应用逻辑 v2
+ * 重构：动作独立页面打卡、大按钮逐组完成、返回后选下一个动作
  */
 
 // ===== 工具函数 =====
@@ -49,7 +50,9 @@ const State = {
   statsTab: 'week',
   statsChart: null,
   // 今日进行中的训练会话
-  activeSessions: {}, // planId -> { exercises: { exId: { doneSets } }, startTime }
+  activeSessions: {}, // planId -> { exercises: { exId: { doneSets, doneRepsPerSet:[] } }, startTime }
+  // 当前正在做的动作页面
+  currentExerciseView: null, // { planId, exId }
 };
 
 // ===== Toast =====
@@ -98,6 +101,10 @@ document.getElementById('bottomNav').addEventListener('click', e => {
   if (!item) return;
   const page = item.dataset.page;
   if (page === State.currentPage) return;
+  // 如果正在动作打卡页面，先返回
+  if (State.currentExerciseView) {
+    State.currentExerciseView = null;
+  }
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   item.classList.add('active');
   State.currentPage = page;
@@ -108,6 +115,11 @@ document.getElementById('bottomNav').addEventListener('click', e => {
 async function renderPage(page) {
   const main = document.getElementById('appMain');
   main.innerHTML = '';
+  // 如果正在看某个动作的详情页面，优先渲染
+  if (State.currentExerciseView) {
+    await renderExerciseDetail();
+    return;
+  }
   switch (page) {
     case 'today': await renderToday(); break;
     case 'plans': await renderPlans(); break;
@@ -178,7 +190,7 @@ async function renderToday() {
       </div>
     </div>`;
 
-  // 今日计划列表
+  // 今日计划列表 - 每个动作可点进去
   if (plans.length === 0) {
     html += `
       <div class="section-header"><span class="section-title">今日训练</span></div>
@@ -191,7 +203,6 @@ async function renderToday() {
   } else {
     html += `<div class="section-header"><span class="section-title">今日训练</span></div>`;
     for (const plan of plans) {
-      // 查找今日该计划的记录
       const record = todayRecords.find(r => r.planId === plan.id) || null;
       html += renderTodayPlanCard(plan, record, today);
     }
@@ -206,15 +217,30 @@ function renderTodayPlanCard(plan, record, today) {
   const session = State.activeSessions[plan.id];
   const isCompleted = record && record.completed;
 
+  // 计算各动作完成状态
   let doneSetsMap = {};
   let completedExIds = new Set();
 
   if (session) {
     doneSetsMap = session.exercises || {};
-    completedExIds = new Set(Object.keys(doneSetsMap).filter(id => doneSetsMap[id] >= (exercises.find(e=>String(e.id)===id)||{sets:1}).sets));
+    completedExIds = new Set(Object.keys(doneSetsMap).filter(id => {
+      const exData = doneSetsMap[id];
+      return exData && (exData.doneSets || 0) >= (exercises.find(e => String(e.id) === id) || { sets: 1 }).sets;
+    }));
   } else if (record) {
     (record.completedExercises || []).forEach(exId => completedExIds.add(String(exId)));
     doneSetsMap = record.setsMap || {};
+    // 转换旧格式：如果 setsMap 中是纯数字，转为新格式
+    const newMap = {};
+    for (const [exIdStr, val] of Object.entries(doneSetsMap)) {
+      if (typeof val === 'number') {
+        const ex = exercises.find(e => String(e.id) === exIdStr);
+        newMap[exIdStr] = { doneSets: val, reps: ex ? ex.reps : 10, doneRepsPerSet: [] };
+      } else {
+        newMap[exIdStr] = val;
+      }
+    }
+    doneSetsMap = newMap;
   }
 
   const totalEx = exercises.length;
@@ -226,25 +252,34 @@ function renderTodayPlanCard(plan, record, today) {
   else if (session) statusBadge = `<span class="plan-badge active">训练中</span>`;
   else statusBadge = `<span class="plan-badge">未开始</span>`;
 
+  // 每个动作做成可点击的卡片，点击进入动作详情页
   let exHtml = exercises.map(ex => {
     const exIdStr = String(ex.id);
     const isDone = completedExIds.has(exIdStr);
-    const doneSets = doneSetsMap[exIdStr] || 0;
+    const exData = doneSetsMap[exIdStr];
+    const doneSets = (exData && exData.doneSets) || (typeof exData === 'number' ? exData : 0);
+    const totalSetsVal = ex.sets;
+
     return `
-      <div class="exercise-item ${isDone ? 'completed' : ''}" id="ex-item-${plan.id}-${ex.id}">
-        <div class="exercise-check ${isDone ? 'checked' : ''}" 
-             onclick="toggleExercise(${plan.id}, ${ex.id})"
-             id="ex-check-${plan.id}-${ex.id}"></div>
-        <div class="exercise-info">
-          <div class="exercise-name">${ex.name}</div>
-          <div class="exercise-detail">${ex.sets}组 × ${ex.reps}次${ex.weight ? ' · ' + ex.weight + 'kg' : ''}${ex.note ? ' · ' + ex.note : ''}</div>
+      <div class="exercise-tile ${isDone ? 'completed' : ''}" 
+           onclick="${isCompleted ? '' : `openExerciseDetail(${plan.id}, ${ex.id})`}"
+           id="ex-tile-${plan.id}-${ex.id}">
+        <div class="exercise-tile-left">
+          <div class="exercise-tile-check ${isDone ? 'checked' : ''}">
+            ${isDone ? '✓' : ''}
+          </div>
+          <div class="exercise-tile-info">
+            <div class="exercise-tile-name">${ex.name}</div>
+            <div class="exercise-tile-detail">${ex.sets}组 × ${ex.reps}次${ex.weight ? ' · ' + ex.weight + 'kg' : ''}${ex.note ? ' · ' + ex.note : ''}</div>
+          </div>
         </div>
-        ${!isCompleted ? `
-        <div class="set-counter">
-          <button class="set-btn" onclick="adjustSets(${plan.id},${ex.id},-1)">−</button>
-          <span class="set-count" id="set-cnt-${plan.id}-${ex.id}">${doneSets}/${ex.sets}</span>
-          <button class="set-btn" onclick="adjustSets(${plan.id},${ex.id},1)">+</button>
-        </div>` : ''}
+        <div class="exercise-tile-right">
+          <div class="exercise-tile-progress-mini">
+            <div class="mini-progress-bar" style="width:${Math.round((doneSets/totalSetsVal)*100)}%"></div>
+          </div>
+          <div class="exercise-tile-sets">${doneSets}/${totalSetsVal}</div>
+          ${!isCompleted ? '<div class="exercise-tile-go">›</div>' : ''}
+        </div>
       </div>`;
   }).join('');
 
@@ -260,9 +295,9 @@ function renderTodayPlanCard(plan, record, today) {
       <div class="progress-wrap">
         <div class="progress-bar" id="prog-${plan.id}" style="width:${progress}%"></div>
       </div>
-      <div class="exercise-list">${exHtml}</div>
+      <div class="exercise-tiles">${exHtml}</div>
       <div class="checkin-btn-wrap">
-        <button class="checkin-btn ${isCompleted ? 'done-btn' : ''}" 
+        <button class="checkin-btn ${isCompleted ? 'done-btn' : allDone ? 'all-done-btn' : ''}" 
                 id="checkin-btn-${plan.id}"
                 onclick="checkIn(${plan.id}, '${today}')"
                 ${isCompleted ? 'disabled' : ''}>
@@ -272,189 +307,157 @@ function renderTodayPlanCard(plan, record, today) {
     </div>`;
 }
 
-// 调整已完成组数
-function adjustSets(planId, exId, delta) {
-  if (!State.activeSessions[planId]) {
-    State.activeSessions[planId] = { exercises: {}, startTime: Date.now() };
-  }
-  const session = State.activeSessions[planId];
-  const plan = State._plans ? State._plans.find(p => p.id === planId) : null;
-  const exIdStr = String(exId);
-  const current = session.exercises[exIdStr] || 0;
-  const newVal = Math.max(0, current + delta);
-  session.exercises[exIdStr] = newVal;
-
-  // 更新UI
-  const cnt = document.getElementById(`set-cnt-${planId}-${exId}`);
-  if (cnt) {
-    // 从DOM获取最大组数
-    const detail = cnt.closest('.exercise-item').querySelector('.exercise-detail');
-    const maxSets = parseInt(detail.textContent) || 3;
-    cnt.textContent = `${newVal}/${maxSets}`;
-  }
-
-  // 检查是否达到组数目标
-  DB.plans.get(planId).then(plan => {
-    if (!plan) return;
-    const ex = plan.exercises.find(e => e.id === exId);
-    if (!ex) return;
-    const done = newVal >= ex.sets;
-    
-    const checkEl = document.getElementById(`ex-check-${planId}-${exId}`);
-    const itemEl = document.getElementById(`ex-item-${planId}-${exId}`);
-    
-    if (done) {
-      if (checkEl) { checkEl.classList.add('checked'); checkEl.classList.add('pop-anim'); }
-      if (itemEl) itemEl.classList.add('completed');
-      if (!session.exercises[exIdStr + '_done']) {
-        session.exercises[exIdStr + '_done'] = true;
-      }
-    } else {
-      if (checkEl) checkEl.classList.remove('checked');
-      if (itemEl) itemEl.classList.remove('completed');
-      session.exercises[exIdStr + '_done'] = false;
-    }
-
-    // 更新进度
-    updatePlanProgress(planId, plan);
-  });
+// ===== 动作详情页面（大按钮逐组打卡） =====
+async function openExerciseDetail(planId, exId) {
+  State.currentExerciseView = { planId, exId };
+  await renderExerciseDetail();
 }
 
-// 切换动作完成状态
-function toggleExercise(planId, exId) {
-  if (!State.activeSessions[planId]) {
-    State.activeSessions[planId] = { exercises: {}, startTime: Date.now() };
-  }
-  const session = State.activeSessions[planId];
-  const exIdStr = String(exId);
+async function renderExerciseDetail() {
+  const { planId, exId } = State.currentExerciseView;
+  if (!planId || !exId) { State.currentExerciseView = null; await renderToday(); return; }
 
-  DB.plans.get(planId).then(plan => {
-    if (!plan) return;
-    const ex = plan.exercises.find(e => e.id === exId);
-    if (!ex) return;
-
-    const currentSets = session.exercises[exIdStr] || 0;
-    const isDone = currentSets >= ex.sets;
-
-    if (isDone) {
-      // 取消完成
-      session.exercises[exIdStr] = 0;
-    } else {
-      // 标记完成（设为满组数）
-      session.exercises[exIdStr] = ex.sets;
-    }
-
-    const checkEl = document.getElementById(`ex-check-${planId}-${exId}`);
-    const itemEl = document.getElementById(`ex-item-${planId}-${exId}`);
-    const cnt = document.getElementById(`set-cnt-${planId}-${exId}`);
-
-    const newDone = !isDone;
-    if (checkEl) {
-      checkEl.classList.toggle('checked', newDone);
-      if (newDone) {
-        checkEl.style.animation = 'none';
-        checkEl.offsetHeight;
-        checkEl.style.animation = '';
-        checkEl.classList.add('pop-anim');
-        setTimeout(() => checkEl.classList.remove('pop-anim'), 300);
-      }
-    }
-    if (itemEl) itemEl.classList.toggle('completed', newDone);
-    if (cnt) cnt.textContent = `${session.exercises[exIdStr]}/${ex.sets}`;
-
-    updatePlanProgress(planId, plan);
-    if (newDone) showToast(`✓ ${ex.name} 完成！`);
-  });
-}
-
-// 更新进度条和打卡按钮
-function updatePlanProgress(planId, plan) {
-  const session = State.activeSessions[planId];
-  if (!session) return;
-  const exercises = plan.exercises || [];
-  const doneCount = exercises.filter(ex => {
-    return (session.exercises[String(ex.id)] || 0) >= ex.sets;
-  }).length;
-  const total = exercises.length;
-  const progress = total > 0 ? Math.round((doneCount / total) * 100) : 0;
-
-  const progBar = document.getElementById(`prog-${planId}`);
-  if (progBar) progBar.style.width = progress + '%';
-
-  const btn = document.getElementById(`checkin-btn-${planId}`);
-  if (btn) {
-    btn.textContent = doneCount === total && total > 0
-      ? '完成训练 打卡！'
-      : `训练进行中 (${doneCount}/${total})`;
-  }
-}
-
-// 打卡
-async function checkIn(planId, date) {
   const plan = await DB.plans.get(planId);
-  if (!plan) return;
+  if (!plan) { State.currentExerciseView = null; await renderToday(); return; }
+  const ex = plan.exercises.find(e => e.id === exId);
+  if (!ex) { State.currentExerciseView = null; await renderToday(); return; }
 
-  const session = State.activeSessions[planId] || { exercises: {}, startTime: Date.now() };
-  const exercises = plan.exercises || [];
+  // 初始化 session
+  if (!State.activeSessions[planId]) {
+    State.activeSessions[planId] = { exercises: {}, startTime: Date.now() };
+  }
+  const session = State.activeSessions[planId];
+  const exIdStr = String(exId);
 
-  const completedExercises = exercises
-    .filter(ex => (session.exercises[String(ex.id)] || 0) >= ex.sets)
-    .map(ex => ex.id);
+  if (!session.exercises[exIdStr]) {
+    session.exercises[exIdStr] = { doneSets: 0, reps: ex.reps, doneRepsPerSet: [] };
+  }
+  const exData = session.exercises[exIdStr];
+  const currentSet = exData.doneSets; // 当前完成的组数（0-based计数）
+  const totalSets = ex.sets;
+  const allDone = currentSet >= totalSets;
 
-  const setsMap = {};
-  exercises.forEach(ex => {
-    setsMap[String(ex.id)] = session.exercises[String(ex.id)] || 0;
-  });
+  // 计算计划总进度
+  const exercises = plan.exercises;
+  const doneCount = exercises.filter(e => {
+    const data = session.exercises[String(e.id)];
+    return data && data.doneSets >= e.sets;
+  }).length;
 
-  const allCompleted = completedExercises.length === exercises.length && exercises.length > 0;
-  const totalSets = Object.values(setsMap).reduce((a, b) => a + b, 0);
+  const main = document.getElementById('appMain');
 
-  // 保存训练记录
-  const existingRecords = await DB.records.getByDate(date);
-  const existingRecord = existingRecords.find(r => r.planId === planId);
-
-  const recordData = {
-    planId,
-    planName: plan.name,
-    date,
-    completedExercises,
-    setsMap,
-    completedSets: totalSets,
-    completed: allCompleted,
-    duration: Math.round((Date.now() - (session.startTime || Date.now())) / 60000),
-    timestamp: Date.now()
-  };
-
-  if (existingRecord) {
-    await DB.records.update({ ...existingRecord, ...recordData });
-  } else {
-    await DB.records.add(recordData);
+  // 已完成的组列表
+  let completedSetsHtml = '';
+  for (let i = 0; i < currentSet; i++) {
+    const repsVal = exData.doneRepsPerSet[i] || ex.reps;
+    completedSetsHtml += `
+      <div class="set-done-row">
+        <div class="set-done-num">第${i+1}组</div>
+        <div class="set-done-reps">${repsVal}次 ✓</div>
+      </div>`;
   }
 
-  // 更新每日打卡汇总
-  const allRecords = await DB.records.getByDate(date);
-  const allPlans = await DB.plans.getAll();
-  const allPlansDone = allPlans.every(p => {
-    const r = allRecords.find(rec => rec.planId === p.id);
-    return r && r.completed;
-  });
+  // 当前要做的组
+  const currentSetNum = currentSet + 1;
 
-  await DB.checkins.put({
-    date,
-    completed: allPlansDone,
-    planCount: allPlans.length,
-    completedPlanCount: allRecords.filter(r => r.completed).length,
-    totalSets: allRecords.reduce((s, r) => s + (r.completedSets || 0), 0),
-    timestamp: Date.now()
-  });
+  main.innerHTML = `
+    <div class="page-enter exercise-detail-page">
+      <!-- 顶部返回栏 -->
+      <div class="exercise-detail-header">
+        <button class="btn-back" onclick="backFromExercise()">
+          <span class="back-arrow">←</span> 返回训练
+        </button>
+        <div class="exercise-detail-progress-badge">${doneCount}/${exercises.length} 动作</div>
+      </div>
 
-  delete State.activeSessions[planId];
+      <!-- 动作名称大字 -->
+      <div class="exercise-detail-name">${ex.name}</div>
+      <div class="exercise-detail-spec">
+        目标 ${totalSets}组 × ${ex.reps}次${ex.weight ? ' · ' + ex.weight + 'kg' : ''}
+      </div>
 
-  showToast(allCompleted ? '🎉 训练完成！已打卡' : '📝 记录已保存');
+      <!-- 完成进度圆环 -->
+      <div class="exercise-ring-wrap">
+        <div class="exercise-ring" id="exerciseRing" style="background:conic-gradient(var(--primary) 0% ${Math.round((currentSet/totalSets)*100)}%, var(--bg-secondary) ${Math.round((currentSet/totalSets)*100)}% 100%)">
+          <div class="exercise-ring-inner">
+            <div class="exercise-ring-value">${currentSet}</div>
+            <div class="exercise-ring-label">/${totalSets}组</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 已完成的组列表 -->
+      ${currentSet > 0 ? `
+      <div class="sets-done-section">
+        <div class="sets-done-title">已完成</div>
+        ${completedSetsHtml}
+      </div>` : ''}
+
+      <!-- 当前组打卡按钮 -->
+      ${!allDone ? `
+      <div class="current-set-section">
+        <div class="current-set-label">第 ${currentSetNum} 组</div>
+        <button class="big-checkin-btn" onclick="completeOneSet(${planId}, ${exId})">
+          <div class="big-checkin-icon">💪</div>
+          <div class="big-checkin-text">完成第 ${currentSetNum} 组</div>
+          <div class="big-checkin-sub">${ex.reps}次${ex.weight ? ' · ' + ex.weight + 'kg' : ''}</div>
+        </button>
+      </div>` : `
+      <div class="all-sets-done-section">
+        <div class="all-sets-done-icon">🎉</div>
+        <div class="all-sets-done-text">${ex.name} 全部完成！</div>
+        <button class="btn btn-primary btn-lg btn-block" onclick="backFromExercise()">
+          返回训练列表 →
+        </button>
+      </div>`}
+
+      <!-- 该计划其他动作快速导航 -->
+      <div class="exercise-nav-section">
+        <div class="exercise-nav-title">其他动作</div>
+        <div class="exercise-nav-list">
+          ${exercises.map(e => {
+            const isCurrent = e.id === exId;
+            const data = session.exercises[String(e.id)];
+            const done = data && data.doneSets >= e.sets;
+            return `
+              <div class="exercise-nav-item ${isCurrent ? 'current' : ''} ${done ? 'done' : ''}" 
+                   onclick="${!isCurrent ? `openExerciseDetail(${planId}, ${e.id})` : ''}">
+                <div class="nav-item-dot ${done ? 'done' : ''}"></div>
+                <div class="nav-item-name">${e.name}</div>
+                <div class="nav-item-sets">${data ? data.doneSets : 0}/${e.sets}</div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+// 完成一组
+function completeOneSet(planId, exId) {
+  const session = State.activeSessions[planId];
+  const exIdStr = String(exId);
+  const exData = session.exercises[exIdStr];
+
+  // 记录这一组的完成次数（默认使用目标次数）
+  exData.doneRepsPerSet.push(exData.reps || 10);
+  exData.doneSets++;
+
+  showToast(`✓ 第${exData.doneSets}组完成！`, 1500);
+
+  // 重新渲染动作详情页
+  renderExerciseDetail();
+}
+
+// 从动作详情返回训练列表
+async function backFromExercise() {
+  State.currentExerciseView = null;
   await renderToday();
 }
 
 function switchPage(page) {
+  if (State.currentExerciseView) {
+    State.currentExerciseView = null;
+  }
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.page === page);
   });
@@ -487,7 +490,7 @@ async function renderPlans() {
     html += `<div class="plan-list">`;
     for (const plan of plans) {
       const exChips = (plan.exercises || []).map(ex =>
-        `<span class="exercise-chip">${ex.name}</span>`
+        `<span class="exercise-chip">${ex.name} ${ex.sets}×${ex.reps}</span>`
       ).join('');
       html += `
         <div class="plan-item">
@@ -591,14 +594,12 @@ function addEditExercise() {
   if (!name) { showToast('请输入动作名称'); return; }
   _modalExercises.push({ id: Date.now(), name, sets, reps, weight: weight || 0, note });
   
-  // 清空输入
   document.getElementById('newExName').value = '';
   document.getElementById('newExSets').value = '3';
   document.getElementById('newExReps').value = '10';
   document.getElementById('newExWeight').value = '';
   document.getElementById('newExNote').value = '';
 
-  // 更新列表
   document.getElementById('editExList').innerHTML = _modalExercises.map((ex, i) => `
     <div class="edit-exercise-item" id="edit-ex-${i}">
       <div class="edit-exercise-name">${ex.name}</div>
@@ -657,17 +658,17 @@ async function confirmDeletePlan(planId) {
   await renderPlans();
 }
 
-// ===== 历史页面 =====
+// ===== 历史页面（增强版 - 详细动作记录） =====
 async function renderHistory() {
   const main = document.getElementById('appMain');
   const { year, month } = State.historyMonth;
   const today = Utils.today();
   const allCheckins = await DB.checkins.getAll();
+  const allRecords = await DB.records.getAll();
 
   const daysInMonth = Utils.getMonthDays(year, month);
   const firstDay = Utils.getFirstDayOfMonth(year, month);
 
-  // 打卡日期集合
   const checkinDates = new Map(allCheckins.map(c => [c.date, c]));
 
   let calHtml = '';
@@ -718,6 +719,7 @@ async function loadHistoryDetail(date) {
   const container = document.getElementById('historyDetail');
   if (!container) return;
   const records = await DB.records.getByDate(date);
+  const plans = await DB.plans.getAll();
 
   if (records.length === 0) {
     container.innerHTML = `
@@ -733,13 +735,61 @@ async function loadHistoryDetail(date) {
     const badge = r.completed
       ? `<span class="history-badge badge-done">完成</span>`
       : `<span class="history-badge badge-partial">部分</span>`;
-    const exHtml = (Object.entries(r.setsMap || {})).map(([exId, doneSets]) => {
-      const isDone = (r.completedExercises || []).includes(parseInt(exId));
-      return `<div class="history-exercise ${isDone ? 'done' : ''}">
-        <div class="history-exercise-dot"></div>
-        <span>已完成 ${doneSets} 组</span>
-      </div>`;
-    }).join('') || '<div style="font-size:13px;color:var(--text-muted)">无详情</div>';
+
+    // 详细动作列表 - 显示每个动作名称和完成情况
+    const plan = plans.find(p => p.id === r.planId);
+    const exerciseDetails = [];
+
+    // 构建 setsMap 为新格式
+    const setsMap = r.setsMap || {};
+    for (const [exIdStr, val] of Object.entries(setsMap)) {
+      const ex = plan ? plan.exercises.find(e => String(e.id) === exIdStr) : null;
+      const exName = ex ? ex.name : '未知动作';
+      const isDone = (r.completedExercises || []).includes(parseInt(exIdStr));
+      
+      // 兼容新旧格式
+      let doneSets, doneRepsPerSet, targetReps, targetSets, targetWeight;
+      if (typeof val === 'number') {
+        doneSets = val;
+        doneRepsPerSet = [];
+        targetSets = ex ? ex.sets : '?';
+        targetReps = ex ? ex.reps : '?';
+        targetWeight = ex ? ex.weight : 0;
+      } else {
+        doneSets = val.doneSets || 0;
+        doneRepsPerSet = val.doneRepsPerSet || [];
+        targetSets = ex ? ex.sets : '?';
+        targetReps = val.reps || (ex ? ex.reps : '?');
+        targetWeight = ex ? ex.weight : 0;
+      }
+
+      exerciseDetails.push({ exName, isDone, doneSets, targetSets, doneRepsPerSet, targetReps, targetWeight });
+    }
+
+    // 如果有计划但没有 setsMap，从 completedExercises 推断
+    if (exerciseDetails.length === 0 && plan && r.completedExercises) {
+      for (const exId of r.completedExercises) {
+        const ex = plan.exercises.find(e => e.id === exId);
+        if (ex) {
+          exerciseDetails.push({
+            exName: ex.name, isDone: true,
+            doneSets: ex.sets, targetSets: ex.sets,
+            doneRepsPerSet: [], targetReps: ex.reps, targetWeight: ex.weight
+          });
+        }
+      }
+    }
+
+    const exHtml = exerciseDetails.map(d => `
+      <div class="history-exercise-row ${d.isDone ? 'done' : 'partial'}">
+        <div class="history-ex-dot ${d.isDone ? 'done' : ''}"></div>
+        <div class="history-ex-name">${d.exName}</div>
+        <div class="history-ex-detail">
+          ${d.doneSets}/${d.targetSets}组
+          ${d.targetWeight ? ' · ' + d.targetWeight + 'kg' : ''}
+          ${d.isDone ? ' ✓' : ''}
+        </div>
+      </div>`).join('') || '<div style="font-size:13px;color:var(--text-muted)">无详情</div>';
 
     return `
       <div class="history-record">
@@ -753,7 +803,7 @@ async function loadHistoryDetail(date) {
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
           ${r.completedSets || 0} 组 · ${r.duration || 0} 分钟
         </div>
-        <div class="history-exercises">${exHtml}</div>
+        <div class="history-exercise-list">${exHtml}</div>
       </div>`;
   }).join('');
 }
@@ -761,7 +811,6 @@ async function loadHistoryDetail(date) {
 function selectHistoryDate(date) {
   State.selectedHistoryDate = date;
   document.querySelectorAll('.calendar-day').forEach(el => el.classList.remove('selected'));
-  // 找到对应cell并标记
   event.currentTarget.classList.add('selected');
   document.querySelector('.section-title').textContent = `${Utils.formatDate(date)} 记录`;
   loadHistoryDetail(date);
@@ -774,4 +823,88 @@ function changeHistoryMonth(delta) {
   if (month < 0) { month = 11; year--; }
   State.historyMonth = { year, month };
   renderHistory();
+}
+
+// ===== 打卡（保存训练记录） =====
+async function checkIn(planId, date) {
+  const plan = await DB.plans.get(planId);
+  if (!plan) return;
+
+  const session = State.activeSessions[planId] || { exercises: {}, startTime: Date.now() };
+  const exercises = plan.exercises || [];
+
+  // 收集完成的动作
+  const completedExercises = [];
+  const setsMap = {};
+  let totalSets = 0;
+
+  exercises.forEach(ex => {
+    const exIdStr = String(ex.id);
+    const exData = session.exercises[exIdStr];
+    if (exData) {
+      const doneSets = exData.doneSets || 0;
+      totalSets += doneSets;
+      setsMap[exIdStr] = {
+        doneSets: doneSets,
+        reps: ex.reps,
+        doneRepsPerSet: exData.doneRepsPerSet || [],
+        exName: ex.name,
+        weight: ex.weight || 0,
+        targetSets: ex.sets,
+        targetReps: ex.reps
+      };
+      if (doneSets >= ex.sets) {
+        completedExercises.push(ex.id);
+      }
+    } else {
+      setsMap[exIdStr] = { doneSets: 0, reps: ex.reps, doneRepsPerSet: [], exName: ex.name, weight: ex.weight || 0, targetSets: ex.sets, targetReps: ex.reps };
+    }
+  });
+
+  const allCompleted = completedExercises.length === exercises.length && exercises.length > 0;
+
+  // 保存训练记录
+  const existingRecords = await DB.records.getByDate(date);
+  const existingRecord = existingRecords.find(r => r.planId === planId);
+
+  const recordData = {
+    planId,
+    planName: plan.name,
+    date,
+    completedExercises,
+    setsMap,
+    completedSets: totalSets,
+    completed: allCompleted,
+    duration: Math.round((Date.now() - (session.startTime || Date.now())) / 60000),
+    timestamp: Date.now()
+  };
+
+  if (existingRecord) {
+    await DB.records.update({ ...existingRecord, ...recordData });
+  } else {
+    await DB.records.add(recordData);
+  }
+
+  // 更新每日打卡汇总
+  const allRecords = await DB.records.getByDate(date);
+  const allPlans = await DB.plans.getAll();
+  const allPlansDone = allPlans.every(p => {
+    const r = allRecords.find(rec => rec.planId === p.id);
+    return r && r.completed;
+  });
+
+  await DB.checkins.put({
+    date,
+    completed: allPlansDone,
+    planCount: allPlans.length,
+    completedPlanCount: allRecords.filter(r => r.completed).length,
+    totalSets: allRecords.reduce((s, r) => s + (r.completedSets || 0), 0),
+    timestamp: Date.now()
+  });
+
+  delete State.activeSessions[planId];
+  State.currentExerciseView = null;
+
+  showToast(allCompleted ? '🎉 训练完成！已打卡' : '📝 记录已保存');
+  await renderToday();
 }
