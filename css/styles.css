@@ -324,6 +324,12 @@ a { text-decoration: none; color: inherit; }
   color: var(--text-muted);
   box-shadow: none;
 }
+.checkin-btn.done-btn:disabled {
+  background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(34,197,94,0.35);
+  opacity: 0.85;
+}
 .checkin-btn.done-btn {
   background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
   box-shadow: 0 4px 12px rgba(34,197,94,0.35);
@@ -1089,3 +1095,120 @@ a { text-decoration: none; color: inherit; }
 .ex-stat-sets { font-weight: 700; color: var(--primary); }
 .ex-stat-reps { color: var(--text-muted); }
 .ex-stat-weight { color: var(--text-secondary); }
+
+/* ===== 多强度分组样式 ===== */
+.intensity-group-list {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 8px;
+}
+.intensity-group-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(99,102,241,0.06);
+  border: 1px solid rgba(99,102,241,0.12);
+  font-size: 13px;
+}
+.intensity-group-item.done-group {
+  background: rgba(34,197,94,0.08);
+  border-color: rgba(34,197,94,0.2);
+}
+.intensity-group-item.current-group {
+  background: rgba(99,102,241,0.15);
+  border-color: rgba(99,102,241,0.3);
+  font-weight: 600;
+}
+.ig-label { font-weight: 600; color: var(--primary); min-width: 30px; }
+.ig-label.done-label { color: var(--success); }
+.ig-detail { flex: 1; color: var(--text-secondary); }
+.ig-progress { font-size: 12px; font-weight: 700; color: var(--primary); }
+.ig-progress.done-progress { color: var(--success); }
+
+/* 计划编辑模态框 - 强度分组 */
+.group-edit-section {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+.group-edit-header {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.group-edit-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.group-edit-row {
+  display: grid; grid-template-columns: auto 1fr 1fr 1fr auto;
+  gap: 6px; align-items: center;
+}
+.group-edit-row label {
+  font-size: 12px; color: var(--text-muted); font-weight: 600;
+}
+.group-edit-row .form-input {
+  padding: 6px 8px; font-size: 13px;
+}
+.group-edit-remove {
+  width: 24px; height: 24px;
+  border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--danger);
+  background: rgba(239,68,68,0.1);
+}
+.group-add-btn {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600;
+  color: var(--primary);
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.2);
+  margin-top: 6px;
+}
+
+/* 动作详情页 - 强度分组进度 */
+.group-progress-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+  transition: background var(--transition), border-color var(--transition);
+}
+.group-progress-title {
+  font-size: 13px; font-weight: 700; color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.group-progress-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.group-progress-row:last-child { border-bottom: none; }
+.gp-label { font-weight: 700; min-width: 30px; color: var(--primary); }
+.gp-label.done { color: var(--success); }
+.gp-spec { flex: 1; color: var(--text-secondary); }
+.gp-status { font-weight: 600; }
+.gp-status.done { color: var(--success); }
+.gp-status.current { color: var(--primary); }
+
+/* 历史记录 - 多强度分组 */
+.history-group-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0;
+  font-size: 12px; color: var(--text-secondary);
+}
+.history-group-row .hg-label { font-weight: 600; color: var(--primary); min-width: 20px; }
+.history-group-row .hg-label.done { color: var(--success); }
+.history-group-row .hg-detail { flex: 1; }
+.history-group-row .hg-done { color: var(--success); font-weight: 600; }
+
+/* 统计 - 多强度分组 */
+.ex-stat-groups {
+  font-size: 11px; color: var(--text-muted);
+  margin-top: 2px;
+}

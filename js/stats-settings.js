@@ -1,4 +1,4 @@
-// ===== 统计页面（增强版 - 按动作分类统计） =====
+// ===== 统计页面（v3 - 支持多强度分组） =====
 async function renderStats() {
   const main = document.getElementById('appMain');
   const tab = State.statsTab;
@@ -54,7 +54,7 @@ async function loadStatsBody(tab) {
   const totalSets = filteredRecords.reduce((s, r) => s + (r.completedSets || 0), 0);
   const totalPlans = filteredRecords.filter(r => r.completed).length;
 
-  // 计算最长连击
+  // 最长连击
   let maxStreak = 0, curStreak = 0;
   const sortedCheckins = [...allCheckins].sort((a,b)=>a.date.localeCompare(b.date));
   let prevDate = null;
@@ -72,48 +72,80 @@ async function loadStatsBody(tab) {
     } else { curStreak = 0; prevDate = null; }
   }
 
-  // ===== 按动作分类统计 =====
+  // ===== 按动作分类统计（支持多强度分组） =====
   const exerciseStats = {};
   for (const r of filteredRecords) {
     const plan = allPlans.find(p => p.id === r.planId);
     const setsMap = r.setsMap || {};
     for (const [exIdStr, val] of Object.entries(setsMap)) {
-      const ex = plan ? plan.exercises.find(e => String(e.id) === exIdStr) : null;
+      const ex = plan ? normalizeExercise(plan.exercises.find(e => String(e.id) === exIdStr)) : null;
       const exName = val.exName || (ex ? ex.name : '未知动作');
-      let doneSets, doneRepsPerSet;
+
+      let totalDoneSets, totalDoneReps, groupsInfo;
       if (typeof val === 'number') {
-        doneSets = val;
-        doneRepsPerSet = [];
+        totalDoneSets = val;
+        totalDoneReps = val * (val.reps || (ex ? ex.intensityGroups[0].reps : 10));
+        groupsInfo = ex ? ex.intensityGroups.map(g => ({ doneSets: 0, targetSets: g.sets, targetReps: g.reps, targetWeight: g.weight })) : [];
       } else {
-        doneSets = val.doneSets || 0;
-        doneRepsPerSet = val.doneRepsPerSet || [];
+        totalDoneSets = val.totalDoneSets || val.doneSets || 0;
+        // 计算总次数：从 groups 汇总
+        if (val.groups && val.groups.length > 0) {
+          totalDoneReps = val.groups.reduce((s, g) =>
+            s + (g.doneRepsPerSet ? g.doneRepsPerSet.reduce((a,b)=>a+b,0) : g.doneSets * (g.targetReps || 10)), 0);
+          groupsInfo = val.groups;
+        } else {
+          totalDoneReps = totalDoneSets * (val.reps || val.targetReps || (ex ? ex.intensityGroups[0].reps : 10));
+          groupsInfo = [];
+        }
       }
+
       if (!exerciseStats[exName]) {
-        exerciseStats[exName] = { totalSets: 0, totalReps: 0, sessions: 0, weight: val.weight || (ex ? ex.weight : 0) };
+        exerciseStats[exName] = { totalSets: 0, totalReps: 0, sessions: 0, maxWeight: 0, groupsInfo: [], ex };
       }
-      exerciseStats[exName].totalSets += doneSets;
-      exerciseStats[exName].totalReps += doneRepsPerSet.reduce((a,b)=>a+b, 0) || (doneSets * (val.reps || (ex ? ex.reps : 10)));
+      exerciseStats[exName].totalSets += totalDoneSets;
+      exerciseStats[exName].totalReps += totalDoneReps;
       exerciseStats[exName].sessions++;
+      // 记录最高重量
+      if (ex) {
+        const maxW = Math.max(...ex.intensityGroups.map(g => g.weight || 0));
+        exerciseStats[exName].maxWeight = Math.max(exerciseStats[exName].maxWeight, maxW);
+      }
+      // 合并分组信息
+      if (groupsInfo.length > 0) {
+        exerciseStats[exName].groupsInfo = groupsInfo;
+      }
     }
   }
 
-  // 排序：按总组数降序
   const sortedExercises = Object.entries(exerciseStats)
     .sort((a, b) => b[1].totalSets - a[1].totalSets);
+  const maxExSets = Math.max(...sortedExercises.map(([,s])=>s.totalSets), 1);
 
   const exerciseListHtml = sortedExercises.length > 0
-    ? sortedExercises.map(([name, stats]) => `
-        <div class="exercise-stat-row">
-          <div class="exercise-stat-name">${name}</div>
-          <div class="exercise-stat-bars">
-            <div class="exercise-stat-bar" style="width:${Math.min(100, Math.round(stats.totalSets / Math.max(...sortedExercises.map(([,s])=>s.totalSets), 1) * 100))}%"></div>
-          </div>
-          <div class="exercise-stat-nums">
-            <span class="ex-stat-sets">${stats.totalSets}组</span>
-            <span class="ex-stat-reps">${stats.totalReps}次</span>
-            ${stats.weight ? `<span class="ex-stat-weight">${stats.weight}kg</span>` : ''}
-          </div>
-        </div>`).join('')
+    ? sortedExercises.map(([name, stats]) => {
+        // 多强度分组信息
+        let groupsDetail = '';
+        if (stats.ex && stats.ex.intensityGroups.length > 1) {
+          groupsDetail = `<div class="ex-stat-groups">${stats.ex.intensityGroups.map(g =>
+            `${g.sets}×${g.reps}${g.weight ? '/' + g.weight + 'kg' : ''}`
+          ).join(' · ')}</div>`;
+        }
+        return `
+          <div class="exercise-stat-row">
+            <div style="min-width:80px">
+              <div class="exercise-stat-name">${name}</div>
+              ${groupsDetail}
+            </div>
+            <div class="exercise-stat-bars">
+              <div class="exercise-stat-bar" style="width:${Math.min(100, Math.round(stats.totalSets / maxExSets * 100))}%"></div>
+            </div>
+            <div class="exercise-stat-nums">
+              <span class="ex-stat-sets">${stats.totalSets}组</span>
+              <span class="ex-stat-reps">${stats.totalReps}次</span>
+              ${stats.maxWeight ? `<span class="ex-stat-weight">${stats.maxWeight}kg</span>` : ''}
+            </div>
+          </div>`;
+      }).join('')
     : '<div style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px">暂无动作数据</div>';
 
   const yearHeatmap = tab === 'year' ? `
@@ -124,22 +156,10 @@ async function loadStatsBody(tab) {
 
   container.innerHTML = `
     <div class="stats-grid">
-      <div class="stats-metric">
-        <div class="stats-metric-value">${completedDays}</div>
-        <div class="stats-metric-label">打卡天数</div>
-      </div>
-      <div class="stats-metric">
-        <div class="stats-metric-value">${totalSets}</div>
-        <div class="stats-metric-label">完成总组数</div>
-      </div>
-      <div class="stats-metric">
-        <div class="stats-metric-value">${totalPlans}</div>
-        <div class="stats-metric-label">完成计划数</div>
-      </div>
-      <div class="stats-metric">
-        <div class="stats-metric-value">${maxStreak}</div>
-        <div class="stats-metric-label">最长连续天数</div>
-      </div>
+      <div class="stats-metric"><div class="stats-metric-value">${completedDays}</div><div class="stats-metric-label">打卡天数</div></div>
+      <div class="stats-metric"><div class="stats-metric-value">${totalSets}</div><div class="stats-metric-label">完成总组数</div></div>
+      <div class="stats-metric"><div class="stats-metric-value">${totalPlans}</div><div class="stats-metric-label">完成计划数</div></div>
+      <div class="stats-metric"><div class="stats-metric-value">${maxStreak}</div><div class="stats-metric-label">最长连续天数</div></div>
     </div>
     <div class="chart-card">
       <div class="chart-title">训练动作统计</div>
@@ -160,14 +180,9 @@ async function loadStatsBody(tab) {
     ${yearHeatmap}`;
 
   setTimeout(() => {
-    if (tab === 'week') {
-      renderWeekCharts(filteredRecords, filteredCheckins, startDate);
-    } else if (tab === 'month') {
-      renderMonthCharts(filteredRecords, filteredCheckins, now.getFullYear(), now.getMonth());
-    } else {
-      renderYearCharts(allRecords, allCheckins, now.getFullYear());
-    }
-    // 动作占比饼图
+    if (tab === 'week') renderWeekCharts(filteredRecords, filteredCheckins, startDate);
+    else if (tab === 'month') renderMonthCharts(filteredRecords, filteredCheckins, now.getFullYear(), now.getMonth());
+    else renderYearCharts(allRecords, allCheckins, now.getFullYear());
     drawExercisePieChart(sortedExercises);
   }, 50);
 }
@@ -202,12 +217,7 @@ function drawExercisePieChart(sortedExercises) {
       plugins: {
         legend: {
           position: 'right',
-          labels: {
-            color: isDark() ? '#94a3b8' : '#64748b',
-            font: { size: 11 },
-            boxWidth: 12,
-            padding: 8
-          }
+          labels: { color: isDark() ? '#94a3b8' : '#64748b', font: { size: 11 }, boxWidth: 12, padding: 8 }
         }
       },
       cutout: '55%'
@@ -216,11 +226,8 @@ function drawExercisePieChart(sortedExercises) {
 }
 
 function renderWeekCharts(records, checkins, startDate) {
-  const labels = [];
-  const trainingData = [];
-  const setsData = [];
+  const labels = [], trainingData = [], setsData = [];
   const dayNames = ['周日','周一','周二','周三','周四','周五','周六'];
-
   for (let i = 0; i < 7; i++) {
     const date = Utils.dateAdd(startDate, i);
     const d = new Date(date);
@@ -311,13 +318,7 @@ function drawBarChart(canvasId, labels, data, label) {
     type: 'bar',
     data: {
       labels,
-      datasets: [{
-        label,
-        data,
-        backgroundColor: 'rgba(99,102,241,0.7)',
-        borderRadius: 6,
-        borderSkipped: false
-      }]
+      datasets: [{ label, data, backgroundColor: 'rgba(99,102,241,0.7)', borderRadius: 6, borderSkipped: false }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -338,16 +339,7 @@ function drawLineChart(canvasId, labels, data, label) {
     type: 'line',
     data: {
       labels,
-      datasets: [{
-        label,
-        data,
-        borderColor: '#6366f1',
-        backgroundColor: 'rgba(99,102,241,0.1)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 3,
-        pointBackgroundColor: '#6366f1'
-      }]
+      datasets: [{ label, data, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.4, pointRadius: 3, pointBackgroundColor: '#6366f1' }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -381,56 +373,40 @@ async function renderSettings() {
         </div>
       </div>
     </div>
-
     <div class="settings-section">
       <div class="settings-section-title">数据管理</div>
       <div class="settings-list">
         <div class="settings-item" onclick="exportData()">
           <div class="settings-icon" style="background:rgba(34,197,94,0.1)">📤</div>
-          <div class="settings-info">
-            <div class="settings-label">导出数据备份</div>
-            <div class="settings-desc">将所有训练数据导出为 JSON 文件</div>
-          </div>
+          <div class="settings-info"><div class="settings-label">导出数据备份</div><div class="settings-desc">将所有训练数据导出为 JSON 文件</div></div>
           <span class="settings-arrow">›</span>
         </div>
         <div class="settings-item" onclick="document.getElementById('importFile').click()">
           <div class="settings-icon" style="background:rgba(245,158,11,0.1)">📥</div>
-          <div class="settings-info">
-            <div class="settings-label">导入数据备份</div>
-            <div class="settings-desc">从 JSON 备份文件恢复数据</div>
-          </div>
+          <div class="settings-info"><div class="settings-label">导入数据备份</div><div class="settings-desc">从 JSON 备份文件恢复数据</div></div>
           <span class="settings-arrow">›</span>
         </div>
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
         <div class="settings-item" onclick="clearAllData()">
           <div class="settings-icon" style="background:rgba(239,68,68,0.1)">🗑️</div>
-          <div class="settings-info">
-            <div class="settings-label">清除所有数据</div>
-            <div class="settings-desc">删除全部训练记录和计划（不可恢复）</div>
-          </div>
+          <div class="settings-info"><div class="settings-label">清除所有数据</div><div class="settings-desc">删除全部训练记录和计划（不可恢复）</div></div>
           <span class="settings-arrow">›</span>
         </div>
       </div>
     </div>
-
     <div class="settings-section">
       <div class="settings-section-title">关于</div>
       <div class="settings-list">
         <div class="settings-item">
           <div class="settings-icon" style="background:rgba(99,102,241,0.1)">💪</div>
-          <div class="settings-info">
-            <div class="settings-label">FitTracker</div>
-            <div class="settings-desc">版本 2.0.0 · 动作打卡版 · 本地存储，数据安全</div>
-          </div>
+          <div class="settings-info"><div class="settings-label">FitTracker</div><div class="settings-desc">版本 3.0.0 · 多强度分组版 · 本地存储，数据安全</div></div>
         </div>
       </div>
     </div>
   </div>`;
 }
 
-function toggleDarkMode(dark) {
-  applyTheme(dark ? 'dark' : 'light');
-}
+function toggleDarkMode(dark) { applyTheme(dark ? 'dark' : 'light'); }
 
 async function exportData() {
   try {
@@ -440,14 +416,10 @@ async function exportData() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const dateStr = new Date().toISOString().split('T')[0];
-    a.href = url;
-    a.download = 'fittracker-backup-' + dateStr + '.json';
-    a.click();
+    a.href = url; a.download = 'fittracker-backup-' + dateStr + '.json'; a.click();
     URL.revokeObjectURL(url);
     showToast('数据已导出 ✓', 2500);
-  } catch (e) {
-    showToast('导出失败：' + e.message);
-  }
+  } catch (e) { showToast('导出失败：' + e.message); }
 }
 
 async function importData(event) {
@@ -472,9 +444,7 @@ async function importData(event) {
         </div>
       </div>`);
     window._pendingImportData = data;
-  } catch (e) {
-    showToast('文件格式错误：' + e.message);
-  }
+  } catch (e) { showToast('文件格式错误：' + e.message); }
   event.target.value = '';
 }
 
@@ -485,9 +455,7 @@ async function confirmImport() {
     window._pendingImportData = null;
     Modal.close();
     showToast('数据导入成功 ✓', 2500);
-  } catch (e) {
-    showToast('导入失败：' + e.message);
-  }
+  } catch (e) { showToast('导入失败：' + e.message); }
 }
 
 function clearAllData() {
