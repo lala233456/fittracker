@@ -724,14 +724,17 @@ a { text-decoration: none; color: inherit; }
   transition: background var(--transition);
 }
 
-/* ===== No Plan Today ===== */
+/* ===== No Plan Today（每日计划入口） ===== */
 .no-plan-today {
   background: var(--bg-card);
-  border: 1px dashed var(--border);
+  border: 2px dashed var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 32px 24px;
   text-align: center;
 }
+.no-plan-today .empty-icon { font-size: 56px; margin-bottom: 16px; }
+.no-plan-today .empty-title { font-size: 18px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; }
+.no-plan-today .empty-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5; }
 
 /* ===== Animations ===== */
 @keyframes fadeInUp {
@@ -1124,38 +1127,49 @@ a { text-decoration: none; color: inherit; }
 .ig-progress { font-size: 12px; font-weight: 700; color: var(--primary); }
 .ig-progress.done-progress { color: var(--success); }
 
-/* 计划编辑模态框 - 强度分组 */
+/* 计划编辑模态框 - 强度分组（移动端优化布局） */
 .group-edit-section {
   background: var(--bg-secondary);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  margin-top: 6px;
+  padding: 12px;
+  margin-top: 8px;
   margin-bottom: 8px;
 }
 .group-edit-header {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 13px; font-weight: 600; color: var(--text-secondary);
-  margin-bottom: 8px;
+  font-size:13px; font-weight:700; color:var(--primary);
+  margin-bottom:10px;
 }
 .group-edit-list {
   display: flex; flex-direction: column; gap: 6px;
 }
 .group-edit-row {
-  display: grid; grid-template-columns: auto 1fr 1fr 1fr auto;
-  gap: 6px; align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
-.group-edit-row label {
-  font-size: 12px; color: var(--text-muted); font-weight: 600;
+.group-edit-field {
+  display: flex; align-items: center; gap: 4px;
+  flex: 1 1 0;
+  min-width: 80px;
 }
-.group-edit-row .form-input {
-  padding: 6px 8px; font-size: 13px;
+.group-edit-field label {
+  font-size:12px; color:var(--text-muted); font-weight:600;
+  white-space: nowrap; flex-shrink:0;
+}
+.group-edit-field .form-input {
+  width:100%;
+  padding:7px 10px; font-size:14px;
+  text-align:center;
+  min-width:0;
 }
 .group-edit-remove {
-  width: 24px; height: 24px;
-  border-radius: var(--radius-full);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: var(--danger);
-  background: rgba(239,68,68,0.1);
+  width:28px; height:28px;
+  border-radius:var(--radius-full);
+  display:flex; align-items:center; justify-content:center;
+  font-size:16px; color:var(--danger); flex-shrink:0;
+  background:rgba(239,68,68,0.1);
 }
 .group-add-btn {
   display: flex; align-items: center; justify-content: center; gap: 4px;

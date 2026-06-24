@@ -19,10 +19,11 @@ const DB = {
       };
       req.onupgradeneeded = (e) => {
         const database = e.target.result;
-        // 训练计划表
+        // 训练计划表（按天隔离，每天创建新计划）
         if (!database.objectStoreNames.contains('plans')) {
           const planStore = database.createObjectStore('plans', { keyPath: 'id', autoIncrement: true });
           planStore.createIndex('name', 'name', { unique: false });
+          planStore.createIndex('date', 'date', { unique: false });
         }
         // 每日训练记录表
         if (!database.objectStoreNames.contains('records')) {
@@ -38,13 +39,24 @@ const DB = {
     });
   },
 
-  // ===== 训练计划操作 =====
+  // ===== 训练计划操作（按天隔离） =====
   plans: {
     async getAll() {
       return new Promise((resolve, reject) => {
         const tx = db.transaction('plans', 'readonly');
         const store = tx.objectStore('plans');
         const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    },
+    // 获取某天的训练计划
+    async getByDate(date) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('plans', 'readonly');
+        const store = tx.objectStore('plans');
+        const idx = store.index('date');
+        const req = idx.getAll(date);
         req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => reject(req.error);
       });
