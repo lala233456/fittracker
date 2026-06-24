@@ -235,8 +235,8 @@ function showCreateDailyPlanModal() {
 function renderTodayPlanCard(plan, record, today) {
   const exercises = (plan.exercises || []).map(normalizeExercise);
   const session = State.activeSessions[plan.id];
-  const isCompleted = record && record.completed;
 
+  // 关键修复：即使 record.completed=true，如果有新加的动作不在记录中，计划不算全部完成
   let doneSetsMap = {};
   let completedExIds = new Set();
 
@@ -248,10 +248,18 @@ function renderTodayPlanCard(plan, record, today) {
       return exData && (exData.totalDoneSets || 0) >= totalSetsForExercise(ex);
     }));
   } else if (record) {
-    (record.completedExercises || []).forEach(exId => completedExIds.add(String(exId)));
+    // 从记录恢复已完成动作ID
+    (record.completedExercises || []).forEach(exId => {
+      // 只标记当前计划中仍然存在的动作
+      if (exercises.find(e => e.id === exId || String(e.id) === String(exId))) {
+        completedExIds.add(String(exId));
+      }
+    });
     const rawMap = record.setsMap || {};
     const newMap = {};
     for (const [exIdStr, val] of Object.entries(rawMap)) {
+      // 只恢复当前计划中仍然存在的动作数据
+      if (!exercises.find(e => String(e.id) === exIdStr)) continue;
       if (typeof val === 'number') {
         const ex = exercises.find(e => String(e.id) === exIdStr);
         newMap[exIdStr] = { totalDoneSets: val, groups: ex ? ex.intensityGroups.map(g => ({ doneSets: 0, doneRepsPerSet: [] })) : [] };
@@ -260,12 +268,20 @@ function renderTodayPlanCard(plan, record, today) {
     doneSetsMap = newMap;
   }
 
+  // 检查是否有新加的动作不在已完成列表中
+  const hasNewExercises = exercises.some(ex => !completedExIds.has(String(ex.id)));
+  // 完成状态：所有动作都完成了才算真正完成
+  const isFullyCompleted = record && record.completed && !hasNewExercises;
+  // 有部分完成的记录但新加了动作 → 状态变为"继续训练"
+  const hasPartialRecord = record && hasNewExercises;
+
   const totalEx = exercises.length;
   const doneEx = completedExIds.size;
   const progress = totalEx > 0 ? Math.round((doneEx / totalEx) * 100) : 0;
 
   let statusBadge = '';
-  if (isCompleted) statusBadge = `<span class="plan-badge done">已完成 ✓</span>`;
+  if (isFullyCompleted) statusBadge = `<span class="plan-badge done">已完成 ✓</span>`;
+  else if (hasPartialRecord) statusBadge = `<span class="plan-badge active">继续训练</span>`;
   else if (session) statusBadge = `<span class="plan-badge active">训练中</span>`;
   else statusBadge = `<span class="plan-badge">未开始</span>`;
 
@@ -291,9 +307,12 @@ function renderTodayPlanCard(plan, record, today) {
       groupsInfo += `</div>`;
     }
 
+    // 关键修复：只有全部完成（无新动作）时才禁用点击；未完成的动作始终可点击
+    const canClick = !isFullyCompleted || !isDone;
+
     return `
       <div class="exercise-tile ${isDone ? 'completed' : ''}" 
-           onclick="${isCompleted ? '' : `openExerciseDetail(${plan.id}, ${ex.id})`}"
+           onclick="${canClick ? `openExerciseDetail(${plan.id}, ${ex.id})` : ''}"
            id="ex-tile-${plan.id}-${ex.id}">
         <div class="exercise-tile-left">
           <div class="exercise-tile-check ${isDone ? 'checked' : ''}">${isDone ? '✓' : ''}</div>
@@ -308,13 +327,13 @@ function renderTodayPlanCard(plan, record, today) {
             <div class="mini-progress-bar" style="width:${Math.round((doneSetsVal/totalSetsVal)*100)}%"></div>
           </div>
           <div class="exercise-tile-sets">${doneSetsVal}/${totalSetsVal}</div>
-          ${!isCompleted ? '<div class="exercise-tile-go">›</div>' : ''}
+          ${canClick ? '<div class="exercise-tile-go">›</div>' : ''}
         </div>
       </div>`;
   }).join('');
 
   const allDone = doneEx === totalEx && totalEx > 0;
-  const checkinBtnLabel = isCompleted ? '已打卡 ✓' : allDone ? '完成训练 打卡！' : `训练进行中 (${doneEx}/${totalEx})`;
+  const checkinBtnLabel = isFullyCompleted ? '已打卡 ✓' : allDone ? '完成训练 打卡！' : `训练进行中 (${doneEx}/${totalEx})`;
 
   return `
     <div class="plan-card" id="plan-card-${plan.id}">
@@ -322,9 +341,9 @@ function renderTodayPlanCard(plan, record, today) {
       <div class="progress-wrap"><div class="progress-bar" id="prog-${plan.id}" style="width:${progress}%"></div></div>
       <div class="exercise-tiles">${exHtml}</div>
       <div class="checkin-btn-wrap">
-        <button class="checkin-btn ${isCompleted ? 'done-btn' : allDone ? 'all-done-btn' : ''}" 
+        <button class="checkin-btn ${isFullyCompleted ? 'done-btn' : allDone ? 'all-done-btn' : ''}" 
                 id="checkin-btn-${plan.id}" onclick="checkIn(${plan.id}, '${today}')"
-                ${isCompleted ? 'disabled' : ''}>${checkinBtnLabel}</button>
+                ${isFullyCompleted ? 'disabled' : ''}>${checkinBtnLabel}</button>
       </div>
     </div>`;
 }
@@ -344,10 +363,42 @@ async function renderExerciseDetail() {
   const ex = normalizeExercise(plan.exercises.find(e => e.id === exId));
   if (!ex) { State.currentExerciseView = null; await renderToday(); return; }
 
-  if (!State.activeSessions[planId]) { State.activeSessions[planId] = { exercises: {}, startTime: Date.now() }; }
+  // 如果没有活跃session，从已有记录恢复数据（支持编辑后继续训练）
+  if (!State.activeSessions[planId]) {
+    const today = Utils.today();
+    const existingRecords = await DB.records.getByDate(today);
+    const existingRecord = existingRecords.find(r => r.planId === planId);
+    
+    const session = { exercises: {}, startTime: existingRecord ? (existingRecord.timestamp || Date.now()) : Date.now() };
+    
+    // 从记录恢复已完成动作的数据
+    if (existingRecord && existingRecord.setsMap) {
+      const exercises = plan.exercises.map(normalizeExercise);
+      for (const [exIdStr, val] of Object.entries(existingRecord.setsMap)) {
+        const exInPlan = exercises.find(e => String(e.id) === exIdStr);
+        if (!exInPlan) continue; // 记录中的动作已被删除，跳过
+        
+        if (typeof val === 'number') {
+          session.exercises[exIdStr] = {
+            totalDoneSets: val,
+            groups: exInPlan.intensityGroups.map(g => ({ doneSets: 0, doneRepsPerSet: [], targetSets: g.sets, targetReps: g.reps, targetWeight: g.weight || 0 }))
+          };
+        } else {
+          session.exercises[exIdStr] = {
+            totalDoneSets: val.totalDoneSets || 0,
+            groups: (val.groups || []).map(g => ({ doneSets: g.doneSets || 0, doneRepsPerSet: g.doneRepsPerSet || [], targetSets: g.targetSets || 0, targetReps: g.targetReps || 0, targetWeight: g.targetWeight || 0 }))
+          };
+        }
+      }
+    }
+    
+    State.activeSessions[planId] = session;
+  }
+  
   const session = State.activeSessions[planId];
   const exIdStr = String(exId);
 
+  // 初始化新动作的session数据（支持编辑后新增动作打卡）
   if (!session.exercises[exIdStr]) {
     session.exercises[exIdStr] = {
       totalDoneSets: 0,
@@ -432,8 +483,6 @@ async function renderExerciseDetail() {
     </div>
 
     ${groupProgressHtml}
-    
-    ${totalDoneSets > 0 ? `<div class="sets-done-section"><div class="sets-done-title">已完成</div>${completedSetsHtml}</div>` : ''}
 
     ${!allDone ? `
     <div class="current-set-section">
@@ -449,6 +498,8 @@ async function renderExerciseDetail() {
       <div class="all-sets-done-text">${ex.name} 全部完成！</div>
       <button class="btn btn-primary btn-lg btn-block" onclick="backFromExercise()">返回训练列表 →</button>
     </div>`}
+
+    ${totalDoneSets > 0 ? `<div class="sets-done-scroll"><div class="sets-done-title">已完成 ${totalDoneSets} 组</div>${completedSetsHtml}</div>` : ''}
 
     <div class="exercise-nav-section">
       <div class="exercise-nav-title">其他动作</div>
