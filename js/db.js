@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'FitTrackerDB';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 let db = null;
 
 const DB = {
@@ -19,21 +19,50 @@ const DB = {
       };
       req.onupgradeneeded = (e) => {
         const database = e.target.result;
+        const oldVer = e.oldVersion;
+
         // 训练计划表（按天隔离，每天创建新计划）
         if (!database.objectStoreNames.contains('plans')) {
           const planStore = database.createObjectStore('plans', { keyPath: 'id', autoIncrement: true });
           planStore.createIndex('name', 'name', { unique: false });
           planStore.createIndex('date', 'date', { unique: false });
+        } else if (oldVer < 2) {
+          // v1->v2: 给已有 plans 表添加 date 索引
+          const tx = e.target.transaction;
+          const planStore = tx.objectStore('plans');
+          if (!planStore.indexNames.contains('date')) {
+            planStore.createIndex('date', 'date', { unique: false });
+          }
         }
+
         // 每日训练记录表
         if (!database.objectStoreNames.contains('records')) {
           const recordStore = database.createObjectStore('records', { keyPath: 'id', autoIncrement: true });
           recordStore.createIndex('date', 'date', { unique: false });
           recordStore.createIndex('planId', 'planId', { unique: false });
         }
+
         // 打卡记录表（每日汇总）
         if (!database.objectStoreNames.contains('checkins')) {
-          const checkinStore = database.createObjectStore('checkins', { keyPath: 'date' });
+          database.createObjectStore('checkins', { keyPath: 'date' });
+        }
+
+        // v2->v3: 数据迁移 - 给旧计划补充 date 字段
+        if (oldVer > 0 && oldVer < 3 && database.objectStoreNames.contains('plans')) {
+          const tx = e.target.transaction;
+          const store = tx.objectStore('plans');
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const plans = req.result || [];
+            for (const p of plans) {
+              if (!p.date) {
+                // 旧数据没有 date，用 createdAt 推算或设为今天
+                const d = new Date(p.createdAt || Date.now());
+                p.date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                store.put(p);
+              }
+            }
+          };
         }
       };
     });
@@ -52,14 +81,20 @@ const DB = {
     },
     // 获取某天的训练计划
     async getByDate(date) {
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction('plans', 'readonly');
-        const store = tx.objectStore('plans');
-        const idx = store.index('date');
-        const req = idx.getAll(date);
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      });
+      try {
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction('plans', 'readonly');
+          const store = tx.objectStore('plans');
+          const idx = store.index('date');
+          const req = idx.getAll(date);
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        });
+      } catch (e) {
+        // 降级：index 不存在时用全量过滤
+        const all = await this.getAll();
+        return all.filter(p => p.date === date);
+      }
     },
     async get(id) {
       return new Promise((resolve, reject) => {
@@ -113,14 +148,19 @@ const DB = {
       });
     },
     async getByDate(date) {
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction('records', 'readonly');
-        const store = tx.objectStore('records');
-        const idx = store.index('date');
-        const req = idx.getAll(date);
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      });
+      try {
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction('records', 'readonly');
+          const store = tx.objectStore('records');
+          const idx = store.index('date');
+          const req = idx.getAll(date);
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        });
+      } catch (e) {
+        const all = await this.getAll();
+        return all.filter(r => r.date === date);
+      }
     },
     async getByDateRange(startDate, endDate) {
       const all = await this.getAll();
