@@ -1,0 +1,18 @@
+{
+  "name": "FitTracker - 健身记录",
+  "short_name": "FitTracker",
+  "description": "安卓健身记录应用，支持训练计划、打卡、历史查看和统计看板",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#6366f1",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%236366f1'/><text y='130' x='96' font-size='100' text-anchor='middle'>💪</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
