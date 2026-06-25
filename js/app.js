@@ -69,9 +69,9 @@ function exerciseChipText(ex) {
   const nex = normalizeExercise(ex);
   if (nex.intensityGroups.length === 1) {
     const g = nex.intensityGroups[0];
-    return `${g.sets}×${g.reps}`;
+    return `${g.sets}×${g.reps}${g.weight ? '×' + g.weight + 'kg' : ''}`;
   }
-  return nex.intensityGroups.map(g => `${g.sets}×${g.reps}`).join('+');
+  return nex.intensityGroups.map(g => `${g.sets}×${g.reps}${g.weight ? '×' + g.weight + 'kg' : ''}`).join('+');
 }
 
 // ===== 全局状态 =====
@@ -495,7 +495,6 @@ async function renderExerciseDetail() {
     </div>
 
     <div class="exercise-detail-name">${ex.name}</div>
-    <div class="exercise-detail-spec">目标 ${exerciseSpecText(ex)}</div>
 
     <div class="exercise-ring-wrap">
       <div class="exercise-ring" id="exerciseRing" style="background:conic-gradient(var(--primary) 0% ${Math.round((totalDoneSets/totalSets)*100)}%, var(--bg-secondary) ${Math.round((totalDoneSets/totalSets)*100)}% 100%)">
@@ -562,11 +561,6 @@ async function completeOneSet(planId, exId) {
 
   // 自动保存训练进度到 IndexedDB（防止页面关闭/刷新丢失数据）
   await autoSaveProgress(planId);
-
-  // 自动保存到文件（如果已绑定文件夹）
-  if (FileSync._dirHandle) {
-    FileSync.saveToFile(); // 不阻塞，后台保存
-  }
 
   renderExerciseDetail();
 }
@@ -1050,16 +1044,25 @@ async function loadHistoryDetail(date) {
   // 如果只有计划没有记录（创建了但没训练）
   if (dayPlans.length > 0 && records.length === 0) {
     container.innerHTML = dayPlans.map(p => {
-      const exChips = (p.exercises||[]).map(normalizeExercise).map(ex =>
-        `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:13px">
-          <span style="font-weight:600">${ex.name}</span><span style="color:var(--text-muted)">${exerciseSpecText(ex)}</span>
-        </div>`
-      ).join('');
+      const exCards = (p.exercises||[]).map(normalizeExercise).map(ex => {
+        const groupRows = ex.intensityGroups.map((g, gi) => {
+          const label = ex.intensityGroups.length > 1 ? `强度${gi+1}` : '规格';
+          return `<div class="history-group-row">
+            <span class="hg-label">${label}</span>
+            <span class="hg-detail">${g.sets}×${g.reps}${g.weight ? '×' + g.weight + 'kg' : ''}</span>
+            <span class="hg-done">未开始</span>
+          </div>`;
+        }).join('');
+        return `<div class="history-exercise-card partial">
+          <div class="history-exercise-row"><div class="history-ex-dot"></div><div class="history-ex-name">${ex.name}</div></div>
+          <div class="history-groups-wrap">${groupRows}</div>
+        </div>`;
+      }).join('');
       return `<div class="history-record">
         <div class="history-record-header"><div class="history-plan-name">${p.name}</div>
         <span class="history-badge badge-partial">未训练</span></div>
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${(p.exercises||[]).length} 个动作</div>
-        <div class="history-exercise-list">${exChips}</div>
+        <div class="history-exercise-list">${exCards}</div>
       </div>`;
     }).join('');
     return;
@@ -1127,7 +1130,7 @@ async function loadHistoryDetail(date) {
         }).join('');
       }
       const totalTargetSets = d.ex ? totalSetsForExercise(d.ex) : '?';
-      return `<div class="history-exercise-row ${d.isDone?'done':'partial'}"><div class="history-ex-dot ${d.isDone?'done':''}"></div><div class="history-ex-name">${d.exName}</div><div class="history-ex-detail">${d.totalDoneSets}/${totalTargetSets}组 ${d.isDone?' ✓':''}</div></div>${groupRows}`;
+      return `<div class="history-exercise-card ${d.isDone?'done':'partial'}"><div class="history-exercise-row"><div class="history-ex-dot ${d.isDone?'done':''}"></div><div class="history-ex-name">${d.exName}</div><div class="history-ex-detail">${d.totalDoneSets}/${totalTargetSets}组${d.isDone?' ✓':''}</div></div>${groupRows ? '<div class="history-groups-wrap">'+groupRows+'</div>' : ''}</div>`;
     }).join('<>') || '<div style="font-size:13px;color:var(--text-muted)">无详情</div>';
 
     return `<div class="history-record">
@@ -1250,11 +1253,6 @@ async function checkIn(planId, date) {
 
   await DB.checkins.put({ date, completed:allPlansDone, planCount:allDayPlans.length, completedPlanCount:allRecs.filter(r=>r.completed).length,
     totalSets:allRecs.reduce((s,r)=>s+(r.completedSets||0),0), timestamp:Date.now() });
-
-  // 打卡完成后自动保存到文件
-  if (FileSync._dirHandle) {
-    await FileSync.saveToFile();
-  }
 
   State.currentExerciseView = null;
   showToast(allCompleted ? '🎉 训练完成！已打卡' : '📝 记录已保存');
