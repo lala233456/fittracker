@@ -95,9 +95,6 @@ jobs:
       # ========== Gradle 构建 ==========
       - name: Build APK (debug)
         working-directory: android
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          JAVA_HOME: ${{ java.home }}
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode=all
