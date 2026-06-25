@@ -8,42 +8,25 @@ on:
 permissions:
   contents: write
 
-env:
-  ANDROID_HOME: /usr/local/lib/android/sdk
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # ========== 拉取代码 ==========
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      # ========== Java 21（Capacitor 要求）==========
-      - name: Setup JDK 21
-        id: setup-java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '21'
-
-      # ========== Android SDK ==========
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android licenses
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       # ========== Node.js ==========
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
+      # ========== 安装依赖 ==========
       - name: Install dependencies
         run: npm ci
 
@@ -59,34 +42,65 @@ jobs:
           cp -r css www/
           cp -r js www/
 
-      # ========== 同步 Capacitor ==========
-      - name: Sync Capacitor
-        run: npx cap sync android
+      # ========== 初始化/同步 Capacitor Android ==========
+      - name: Init & Sync Capacitor Android
+        run: |
+          npx cap add android || true
+          npx cap sync android
 
       # ========== 复制自定义插件 ==========
-      - name: Copy custom plugin
+      - name: Copy custom FolderPicker plugin
         run: |
           mkdir -p android/app/src/main/java/com/fittracker/app/folderpicker
           cp plugins/folder-picker/android/src/main/java/com/fittracker/app/folderpicker/FolderPickerPlugin.java \
              android/app/src/main/java/com/fittracker/app/folderpicker/FolderPickerPlugin.java
 
-      # ========== 修复 SDK 版本兼容性 ==========
-      - name: Fix SDK versions for CI
+      # ========== 注册插件到 MainActivity ==========
+      - name: Register plugin in MainActivity
         run: |
-          # 将 compileSdk 和 targetSdk 改为 35（CI 环境可用）
-          sed -i 's/compileSdkVersion = 36/compileSdkVersion = 35/' android/variables.gradle
-          sed -i 's/targetSdkVersion = 36/targetSdkVersion = 35/' android/variables.gradle
-          cat android/variables.gradle
+          MAIN=android/app/src/main/java/com/fittracker/app/MainActivity.java
+          if ! grep -q "FolderPickerPlugin" "$MAIN"; then
+            sed -i 's/import com.getcapacitor.BridgeActivity;/import com.getcapacitor.BridgeActivity;\nimport com.fittracker.app.folderpicker.FolderPickerPlugin;/' "$MAIN"
+            sed -i 's/add(.*);$/add(com.fittracker.app.folderpicker.FolderPickerPlugin.class);\n\0/' "$MAIN"
+          fi
+          cat "$MAIN"
 
-      # ========== Gradle 构建 ==========
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # ========== 设置构建环境（JDK + SDK）==========
+      - name: Setup JDK 17 (for Android Gradle Plugin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
-      - name: Build APK (debug)
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept licenses + install SDK components
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      # ========== 修复 Java 版本兼容性 ==========
+      - name: Fix Java compatibility
         working-directory: android
         run: |
+          # capacitor.build.gradle 可能要求 VERSION_21，改为 VERSION_17 以匹配我们的 JDK
+          find . -name "*.gradle" | xargs grep -l "VERSION_21" 2>/dev/null | while read f; do
+            echo "Fixing $f: VERSION_21 -> VERSION_17"
+            sed -i 's/JavaVersion.VERSION_21/JavaVersion.VERSION_17/g' "$f"
+          done
+          # 确认修改
+          grep -rn "sourceCompatibility\|targetCompatibility" app/capacitor.build.gradle || echo "No source/target compat found"
+
+      # ========== Gradle 构建 ==========
+      - name: Build APK (debug)
+        working-directory: android
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          JAVA_HOME: ${{ java.home }}
+        run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode=all
 
       # ========== 上传 Artifact ==========
       - name: Upload APK artifact
@@ -95,6 +109,7 @@ jobs:
           name: FitTracker-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+          if-no-files-found: warn
 
       # ========== 创建 Release ==========
       - name: Create tag and push
