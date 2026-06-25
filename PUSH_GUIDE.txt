@@ -1,0 +1,49 @@
+# =============================================
+# 🚀 FitTracker 推送到 GitHub 操作指南
+# =============================================
+#
+# 当前环境无法直接推送到 GitHub（网络限制）
+# 请在你自己电脑的终端中执行以下步骤
+#
+# 方法一：使用推送脚本（推荐）
+# ============================================
+
+# 1. 打开 Git Bash 或 CMD
+# 2. 进入项目目录
+cd C:\Users\23625\WorkBuddy\2026-06-24-15-01-21\fitness-app
+
+# 3. 执行推送脚本
+bash push-to-github.sh
+
+# ============================================
+# 方法二：手动推送（3条命令）
+# ============================================
+
+cd C:\Users\23625\WorkBuddy\2026-06-24-15-01-21\fitness-app
+
+# 确认分支名是 main（已改好）
+git branch  # 应显示 * main
+
+# 推送所有提交到 GitHub
+git push -u origin main
+
+# 推送成功后，GitHub Actions 会自动开始构建 APK！
+
+# ============================================
+# 如果 push 需要认证
+# ============================================
+# GitHub 现在需要用 Personal Access Token (PAT) 代替密码
+# 1. 去 https://github.com/settings/tokens 创建一个 token
+#    - 权限选择: repo (完整仓库访问)
+# 2. push 时输入:
+#    用户名: 你的 GitHub 用户名 (lala233456)
+#    密码: 你的 Personal Access Token (不是 GitHub 密码)
+# 3. 或者设置 credential helper:
+#    git config --global credential.helper store
+
+# ============================================
+# 查看构建进度和下载 APK
+# ============================================
+# 构建进度: https://github.com/lala233456/fittracker/actions
+# APK下载:   https://github.com/lala233456/fittracker/releases
+# 构建大约需要 5-10 分钟

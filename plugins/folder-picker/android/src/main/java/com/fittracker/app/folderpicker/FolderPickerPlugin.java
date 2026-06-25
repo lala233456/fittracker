@@ -6,9 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Build;
+import android.database.Cursor;
 import android.provider.DocumentsContract;
-import android.webkit.MimeTypeMap;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -159,7 +158,7 @@ public class FolderPickerPlugin extends Plugin {
                 Uri treeUri = data.getData();
 
                 // Take persistable permission
-                getContentResolver().takePersistableUriPermission(
+                getContext().getContentResolver().takePersistableUriPermission(
                     treeUri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 );
@@ -212,7 +211,7 @@ public class FolderPickerPlugin extends Plugin {
                 DocumentsContract.Document.COLUMN_MIME_TYPE
             };
 
-            java.util.Cursor cursor = resolver.query(childrenUri, projection, null, null, null);
+            Cursor cursor = resolver.query(childrenUri, projection, null, null, null);
             if (cursor != null) {
                 while (cursor.moveToNext()) {
                     String displayName = cursor.getString(
