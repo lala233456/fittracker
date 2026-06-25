@@ -1,0 +1,22 @@
+{
+  "name": "fittracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FitTracker 健身记录应用",
+  "scripts": {
+    "build": "echo 'Static app, no build needed'",
+    "cap:sync": "npx cap sync",
+    "cap:open": "npx cap open android",
+    "cap:build": "npx cap build android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "sharp": "^0.35.2"
+  },
+  "devDependencies": {
+    "vercel": "^54.15.1",
+    "wrangler": "^4.104.0"
+  }
+}

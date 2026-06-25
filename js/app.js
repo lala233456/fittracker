@@ -165,8 +165,32 @@ async function renderToday() {
     else break;
   }
 
-  const totalSets = todayRecords.reduce((s, r) => s + (r.completedSets || 0), 0);
-  const totalExs = todayRecords.reduce((s, r) => s + (r.completedExercises ? r.completedExercises.length : 0), 0);
+  // 统计数据：合并 records 和活跃 session 的数据（确保实时显示最新进度）
+  let totalSets = todayRecords.reduce((s, r) => s + (r.completedSets || 0), 0);
+  let totalExs = todayRecords.reduce((s, r) => s + (r.completedExercises ? r.completedExercises.length : 0), 0);
+
+  // 如果有活跃的训练 session，用 session 数据覆盖 record 数据（session 更新）
+  for (const rec of todayRecords) {
+    const sess = State.activeSessions[rec.planId];
+    if (!sess) continue;
+    // 用 session 数据重新计算这个计划的总组数和完成动作数
+    const plan = await DB.plans.get(rec.planId);
+    if (!plan) continue;
+    const exercises = (plan.exercises||[]).map(normalizeExercise);
+    let sessTotalSets = 0;
+    let sessCompletedExIds = [];
+    for (const ex of exercises) {
+      const ed = sess.exercises[String(ex.id)];
+      if (ed) {
+        const ds = ed.totalDoneSets || 0;
+        sessTotalSets += ds;
+        if (ds >= totalSetsForExercise(ex)) sessCompletedExIds.push(ex.id);
+      }
+    }
+    // 减去旧 record 数据，加上新的 session 数据
+    totalSets = totalSets - (rec.completedSets||0) + sessTotalSets;
+    totalExs = totalExs - (rec.completedExercises||[]).length + sessCompletedExIds.length;
+  }
   const completedPlans = todayRecords.filter(r => r.completed).length;
 
   let html = `<div class="page-enter">`;
@@ -522,7 +546,7 @@ async function renderExerciseDetail() {
   </div>`;
 }
 
-function completeOneSet(planId, exId) {
+async function completeOneSet(planId, exId) {
   const session = State.activeSessions[planId];
   const exIdStr = String(exId);
   const exData = session.exercises[exIdStr];
@@ -535,7 +559,107 @@ function completeOneSet(planId, exId) {
   g.doneSets++;
   exData.totalDoneSets++;
   showToast(`✓ 强度${targetGroupIdx+1} 第${g.doneSets}组完成！`, 1500);
+
+  // 自动保存训练进度到 IndexedDB（防止页面关闭/刷新丢失数据）
+  await autoSaveProgress(planId);
+
+  // 自动保存到文件（如果已绑定文件夹）
+  if (FileSync._dirHandle) {
+    FileSync.saveToFile(); // 不阻塞，后台保存
+  }
+
   renderExerciseDetail();
+}
+
+// 自动保存当前训练进度（每组打卡后自动调用）
+async function autoSaveProgress(planId) {
+  try {
+    const session = State.activeSessions[planId];
+    if (!session) return;
+    const plan = await DB.plans.get(planId);
+    if (!plan) return;
+    const date = Utils.today();
+    const exercises = (plan.exercises || []).map(normalizeExercise);
+
+    // 从session构建setsMap和completedExercises
+    const completedExercises = [], setsMap = {};
+    let totalSets = 0;
+
+    exercises.forEach(ex => {
+      const exIdStr = String(ex.id);
+      const exData = session.exercises[exIdStr];
+      const totalTargetSets = totalSetsForExercise(ex);
+      if (exData) {
+        const doneSets = exData.totalDoneSets || 0;
+        totalSets += doneSets;
+        setsMap[exIdStr] = {
+          totalDoneSets: doneSets,
+          exName: ex.name,
+          weight: ex.intensityGroups[0].weight||0,
+          targetSets: totalTargetSets,
+          targetReps: ex.intensityGroups[0].reps,
+          groups: (exData.groups||[]).map((g, gi) => ({
+            doneSets: g.doneSets||0,
+            doneRepsPerSet: g.doneRepsPerSet||[],
+            targetSets: g.targetSets||ex.intensityGroups[gi].sets,
+            targetReps: g.targetReps||ex.intensityGroups[gi].reps,
+            targetWeight: g.targetWeight||ex.intensityGroups[gi].weight||0
+          }))
+        };
+        if (doneSets >= totalTargetSets) completedExercises.push(ex.id);
+      } else {
+        setsMap[exIdStr] = {
+          totalDoneSets: 0,
+          exName: ex.name,
+          weight: ex.intensityGroups[0].weight||0,
+          targetSets: totalTargetSets,
+          targetReps: ex.intensityGroups[0].reps,
+          groups: ex.intensityGroups.map(g=>({ doneSets:0, doneRepsPerSet:[], targetSets:g.sets, targetReps:g.reps, targetWeight:g.weight||0 }))
+        };
+      }
+    });
+
+    const allCompleted = completedExercises.length === exercises.length && exercises.length > 0;
+
+    const existingRecords = await DB.records.getByDate(date);
+    const existingRecord = existingRecords.find(r => r.planId === planId);
+    const recordData = {
+      planId,
+      planName: plan.name,
+      date,
+      completedExercises,
+      setsMap,
+      completedSets: totalSets,
+      completed: allCompleted,
+      duration: Math.round((Date.now()-(session.startTime||Date.now()))/60000),
+      timestamp: Date.now()
+    };
+
+    if (existingRecord) {
+      await DB.records.update({...existingRecord, ...recordData});
+    } else {
+      await DB.records.add(recordData);
+    }
+
+    // 同步更新每日打卡摘要
+    const allRecs = await DB.records.getByDate(date);
+    const allDayPlans = await DB.plans.getByDate(date);
+    const allPlansDone = allDayPlans.every(p => {
+      const r = allRecs.find(rec => rec.planId === p.id);
+      return r && r.completed;
+    });
+
+    await DB.checkins.put({
+      date,
+      completed: allPlansDone,
+      planCount: allDayPlans.length,
+      completedPlanCount: allRecs.filter(r => r.completed).length,
+      totalSets: allRecs.reduce((s,r)=>s+(r.completedSets||0),0),
+      timestamp: Date.now()
+    });
+  } catch(e) {
+    console.error('autoSaveProgress error:', e);
+  }
 }
 
 async function backFromExercise() { State.currentExerciseView = null; await renderToday(); }
@@ -785,8 +909,57 @@ async function savePlan(planId) {
   const planData = { name, description, exercises, date: Utils.today() };
 
   if (planId) {
+    // 编辑模式：检查是否有新动作被加入
+    const existingPlan = await DB.plans.get(planId);
+    let hasNewExercise = false;
+    if (existingPlan && existingPlan.exercises) {
+      const newExIds = exercises.map(e => String(e.id));
+      const oldExIds = (existingPlan.exercises||[]).map(e => String(e.id));
+      // 如果新计划中的动作ID不在旧计划中，说明有新动作
+      for (const eid of newExIds) {
+        if (!oldExIds.includes(eid)) { hasNewExercise = true; break; }
+      }
+    }
+
     await DB.plans.update({ ...planData, id: planId });
-    showToast('计划已更新 ✓');
+
+    // 如果有新动作加入且之前已打卡，重置记录状态为"未完成"
+    if (hasNewExercise) {
+      const today = Utils.today();
+      const records = await DB.records.getByDate(today);
+      const record = records.find(r => r.planId === planId);
+      if (record && record.completed) {
+        // 重置 completed 标志，但保留已完成的组数据
+        record.completed = false;
+        await DB.records.update(record);
+
+        // 更新每日打卡摘要
+        const allRecs = await DB.records.getByDate(today);
+        const allDayPlans = await DB.plans.getByDate(today);
+        const allPlansDone = allDayPlans.every(p => {
+          const r = allRecs.find(rec => rec.planId === p.id);
+          return r && r.completed;
+        });
+
+        await DB.checkins.put({
+          date: today,
+          completed: allPlansDone,
+          planCount: allDayPlans.length,
+          completedPlanCount: allRecs.filter(r => r.completed).length,
+          totalSets: allRecs.reduce((s,r)=>s+(r.completedSets||0),0),
+          timestamp: Date.now()
+        });
+
+        // 清除该计划的 session 数据，让用户重新训练新加的动作
+        delete State.activeSessions[planId];
+
+        showToast('计划已更新 ✓（检测到新动作，打卡状态已重置，需重新完成所有动作后打卡）');
+      } else {
+        showToast('计划已更新 ✓');
+      }
+    } else {
+      showToast('计划已更新 ✓');
+    }
   } else {
     await DB.plans.add(planData);
     showToast('今日计划已创建 ✓');
@@ -924,11 +1097,33 @@ async function loadHistoryDetail(date) {
     }
 
     const exHtml = exerciseDetails.map(d => {
+      // 始终显示强度分组详情（包括单强度动作）
+      // 如果 groupsDetail 为空但从 plan 有数据，则从 plan 构建（兼容旧数据）
+      let displayGroups = d.groupsDetail || [];
+      if (displayGroups.length === 0 && d.ex && d.ex.intensityGroups) {
+        displayGroups = d.ex.intensityGroups.map((ig, gi) => ({
+          doneSets: gi === 0 ? d.totalDoneSets : 0,
+          targetSets: ig.sets,
+          targetReps: ig.reps,
+          targetWeight: ig.weight || 0
+        }));
+      }
       let groupRows = '';
-      if (d.ex && d.ex.intensityGroups.length > 1 && d.groupsDetail.length > 0) {
-        groupRows = d.groupsDetail.map((g, gi) => {
-          const ig = d.ex.intensityGroups[gi]; const gDone=g.doneSets, gTotal=g.targetSets||ig.sets; const gReps=g.targetReps||ig.reps; const gWeight=g.targetWeight||ig.weight;
-          return `<div class="history-group-row"><span class="hg-label ${gDone>=gTotal?'done':''}">强度${gi+1}</span><span class="hg-detail">${gTotal}×${gReps}${gWeight?'/'+gWeight+'kg':''}</span><span class="hg-done">${gDone>=gTotal?'✓':gDone+'/'+gTotal}</span></div>`;
+      if (d.ex && displayGroups.length > 0) {
+        groupRows = displayGroups.map((g, gi) => {
+          const ig = d.ex.intensityGroups[gi];
+          const gDone = g.doneSets || 0;
+          const gTotal = g.targetSets || ig.sets;
+          const gReps = g.targetReps || ig.reps;
+          const gWeight = g.targetWeight || ig.weight || 0;
+          const isGroupDone = gDone >= gTotal;
+          // 多强度显示"强度N"，单强度显示"规格"
+          const label = d.ex.intensityGroups.length > 1 ? `强度${gi+1}` : '规格';
+          return `<div class="history-group-row">
+            <span class="hg-label ${isGroupDone ? 'done' : ''}">${label}</span>
+            <span class="hg-detail">${gTotal}×${gReps}${gWeight ? '/'+gWeight+'kg' : ''}</span>
+            <span class="hg-done">${isGroupDone ? '✓' : gDone+'/'+gTotal}</span>
+          </div>`;
         }).join('');
       }
       const totalTargetSets = d.ex ? totalSetsForExercise(d.ex) : '?';
@@ -957,14 +1152,71 @@ function changeHistoryMonth(delta) {
   State.historyMonth = { year, month }; renderHistory();
 }
 
+// 获取或重建 session（防止 session 丢失导致数据全部清零）
+async function getOrRecoverSession(planId, date) {
+  const plan = await DB.plans.get(planId);
+  if (!plan) return { exercises: {}, startTime: Date.now() };
+  
+  const exercises = (plan.exercises || []).map(normalizeExercise);
+  
+  // 如果 session 存在，更新它以包含新动作/移除已删除动作
+  if (State.activeSessions[planId]) {
+    const session = State.activeSessions[planId];
+    // 为计划中的新动作初始化数据
+    for (const ex of exercises) {
+      const exIdStr = String(ex.id);
+      if (!session.exercises[exIdStr]) {
+        session.exercises[exIdStr] = { totalDoneSets:0, groups: ex.intensityGroups.map(g => ({ doneSets:0, doneRepsPerSet:[], targetSets:g.sets, targetReps:g.reps, targetWeight:g.weight||0 })) };
+      }
+    }
+    // 移除已删除动作的数据（可选，不影响功能）
+    return session;
+  }
+  
+  // session 丢失，从已有记录恢复
+  const existingRecords = await DB.records.getByDate(date);
+  const existingRecord = existingRecords.find(r => r.planId === planId);
+  const session = { exercises: {}, startTime: existingRecord ? (existingRecord.timestamp || Date.now()) : Date.now() };
+  
+  if (existingRecord && existingRecord.setsMap) {
+    for (const [exIdStr, val] of Object.entries(existingRecord.setsMap)) {
+      const exInPlan = exercises.find(e => String(e.id) === exIdStr);
+      if (!exInPlan) continue;
+      if (typeof val === 'number') {
+        session.exercises[exIdStr] = { totalDoneSets: val, groups: exInPlan.intensityGroups.map(g => ({ doneSets:0, doneRepsPerSet:[], targetSets:g.sets, targetReps:g.reps, targetWeight:g.weight||0 })) };
+      } else {
+        session.exercises[exIdStr] = { totalDoneSets: val.totalDoneSets||0, groups: (val.groups||[]).map(g=>({ doneSets:g.doneSets||0, doneRepsPerSet:g.doneRepsPerSet||[], targetSets:g.targetSets||0, targetReps:g.targetReps||0, targetWeight:g.targetWeight||0 })) };
+      }
+    }
+  }
+  // 为计划中的新动作（不在记录中）初始化
+  for (const ex of exercises) {
+    const exIdStr = String(ex.id);
+    if (!session.exercises[exIdStr]) {
+      session.exercises[exIdStr] = { totalDoneSets:0, groups: ex.intensityGroups.map(g=>({ doneSets:0, doneRepsPerSet:[], targetSets:g.sets, targetReps:g.reps, targetWeight:g.weight||0 })) };
+    }
+  }
+  State.activeSessions[planId] = session;
+  return session;
+}
+
 // ===== 打卡 =====
 async function checkIn(planId, date) {
   const plan = await DB.plans.get(planId);
   if (!plan) return;
-  const session = State.activeSessions[planId] || { exercises: {}, startTime: Date.now() };
+  const session = await getOrRecoverSession(planId, date);
   const exercises = (plan.exercises || []).map(normalizeExercise);
   const completedExercises = [], setsMap = {}; let totalSets = 0;
 
+    // 强制确保 session 包含所有动作的数据（修复新动作数据丢失问题）
+  for (const ex of exercises) {
+    const exIdStr = String(ex.id);
+    if (!session.exercises[exIdStr]) {
+      console.log('初始化新动作 session 数据:', ex.name);
+      session.exercises[exIdStr] = { totalDoneSets:0, groups: ex.intensityGroups.map(g => ({ doneSets:0, doneRepsPerSet:[], targetSets:g.sets, targetReps:g.reps, targetWeight:g.weight||0 })) };
+    }
+  }
+  
   exercises.forEach(ex => {
     const exIdStr = String(ex.id);
     const exData = session.exercises[exIdStr];
@@ -999,7 +1251,12 @@ async function checkIn(planId, date) {
   await DB.checkins.put({ date, completed:allPlansDone, planCount:allDayPlans.length, completedPlanCount:allRecs.filter(r=>r.completed).length,
     totalSets:allRecs.reduce((s,r)=>s+(r.completedSets||0),0), timestamp:Date.now() });
 
-  delete State.activeSessions[planId]; State.currentExerciseView = null;
+  // 打卡完成后自动保存到文件
+  if (FileSync._dirHandle) {
+    await FileSync.saveToFile();
+  }
+
+  State.currentExerciseView = null;
   showToast(allCompleted ? '🎉 训练完成！已打卡' : '📝 记录已保存');
   await renderToday();
 }

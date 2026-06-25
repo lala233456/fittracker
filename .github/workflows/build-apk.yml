@@ -1,0 +1,107 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # 允许手动触发构建
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare web assets
+        run: |
+          # Copy web files to www/ directory (Capacitor webDir)
+          rm -rf www
+          mkdir -p www
+          cp index.html www/
+          cp manifest.json www/
+          cp icon.svg www/
+          cp icon-512.png www/
+          cp -r css www/
+          cp -r js www/
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Copy custom plugin to Android source
+        run: |
+          # Ensure the FolderPicker plugin Java file is in the android project
+          mkdir -p android/app/src/main/java/com/fittracker/app/folderpicker
+          cp plugins/folder-picker/android/src/main/java/com/fittracker/app/folderpicker/FolderPickerPlugin.java \
+             android/app/src/main/java/com/fittracker/app/folderpicker/FolderPickerPlugin.java
+          # Verify MainActivity registers the plugin
+          cat android/app/src/main/java/com/fittracker/app/MainActivity.java
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK (debug)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FitTracker-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Create tag for release
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Auto build $TAG"
+          git push origin "$TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: 'FitTracker v1.0.${{ github.run_number }}'
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            🏋️ FitTracker 健身记录应用
+
+            ## 功能
+            - 每日训练计划创建与打卡
+            - 多强度分组支持（如：俯卧撑 3组×25次 + 2组×10次）
+            - 历史记录查看（详细动作、组数、次数、重量）
+            - 日/月/年统计看板（Chart.js 图表）
+            - 数据导出/导入备份
+            - **原生文件夹选择器** — 选一次文件夹，数据自动同步
+
+            ## 安装说明
+            1. 下载 app-debug.apk 文件
+            2. 在 Android 手机上打开安装
+            3. 如提示"未知来源"，需在手机设置中允许安装
+
+            ## 数据备份
+            - 推荐首次打开时选择一个文件夹
+            - 数据自动保存到文件夹中的 fittracker-data.json
+            - 换手机时重新安装 APK，选择同一文件夹即可恢复所有数据
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

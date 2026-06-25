@@ -1,0 +1,14 @@
+{
+  "name": "folder-picker",
+  "version": "1.0.0",
+  "description": "Capacitor plugin for Android folder picker using Storage Access Framework",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "scripts": {},
+  "keywords": ["capacitor", "plugin", "android", "folder", "picker", "saf"],
+  "capacitor": {
+    "android": {
+      "src": "android/src/main/java"
+    }
+  }
+}

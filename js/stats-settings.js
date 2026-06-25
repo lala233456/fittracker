@@ -356,7 +356,62 @@ function drawLineChart(canvasId, labels, data, label) {
 async function renderSettings() {
   const main = document.getElementById('appMain');
   const theme = State.theme;
+  const storeInfo = FileSync.getStorageDesc();
+  let syncBadge = '';
+  if (storeInfo.type === 'folder') {
+    syncBadge = `<span class="file-sync-badge">📂 ${storeInfo.name} · 自动同步</span>`;
+  } else if (storeInfo.type === 'file') {
+    syncBadge = `<span class="file-sync-badge">📄 ${storeInfo.name} · 自动同步</span>`;
+  } else {
+    syncBadge = `<span class="file-sync-badge inactive">💾 仅浏览器本地存储</span>`;
+  }
+
+  // 文件同步相关设置项
+  let syncItems = '';
+  if (FileSync._isDirSupported) {
+    syncItems += `
+        <div class="settings-item" onclick="FileSync.reSelectFolder()">
+          <div class="settings-icon" style="background:rgba(99,102,241,0.1)">📂</div>
+          <div class="settings-info">
+            <div class="settings-label">文件同步文件夹</div>
+            <div class="settings-desc">${FileSync._dirHandle ? '当前: ' + FileSync._dirHandle.name + ' · 点击更换' : '未绑定 · 点击选择文件夹'}</div>
+          </div>
+          <span class="settings-arrow">›</span>
+        </div>
+        ${FileSync._dirHandle ? `
+        <div class="settings-item" onclick="FileSync.unlinkFolder()">
+          <div class="settings-icon" style="background:rgba(239,68,68,0.1)">🔗</div>
+          <div class="settings-info"><div class="settings-label">解除文件夹绑定</div><div class="settings-desc">停止自动保存到文件</div></div>
+          <span class="settings-arrow">›</span>
+        </div>
+        ` : ''}`;
+  } else if (FileSync._isFileSupported) {
+    syncItems += `
+        <div class="settings-item" onclick="FileSync.reSelectFolder()">
+          <div class="settings-icon" style="background:rgba(99,102,241,0.1)">📄</div>
+          <div class="settings-info">
+            <div class="settings-label">数据文件绑定</div>
+            <div class="settings-desc">${FileSync._fileHandle ? '当前: ' + FileSync._fileHandle.name + ' · 自动同步' : '未绑定 · 点击选择文件'}</div>
+          </div>
+          <span class="settings-arrow">›</span>
+        </div>`;
+  } else {
+    // 手机端 / 不支持的浏览器 — 提示手动备份
+    syncItems += `
+        <div class="settings-item" style="cursor:default">
+          <div class="settings-icon" style="background:rgba(148,163,184,0.1)">ℹ️</div>
+          <div class="settings-info">
+            <div class="settings-label">数据存储方式</div>
+            <div class="settings-desc">浏览器本地存储 · 换浏览器数据会丢失<br>建议定期导出备份到云盘或微信</div>
+          </div>
+        </div>`;
+  }
+
   main.innerHTML = `<div class="page-enter">
+    <div style="text-align:center;padding:8px 0 4px;">
+      <span style="font-size:13px;color:var(--text-secondary);">数据存储</span>
+      ${syncBadge}
+    </div>
     <div class="settings-section">
       <div class="settings-section-title">外观</div>
       <div class="settings-list">
@@ -376,6 +431,7 @@ async function renderSettings() {
     <div class="settings-section">
       <div class="settings-section-title">数据管理</div>
       <div class="settings-list">
+        ${syncItems}
         <div class="settings-item" onclick="exportData()">
           <div class="settings-icon" style="background:rgba(34,197,94,0.1)">📤</div>
           <div class="settings-info"><div class="settings-label">导出数据备份</div><div class="settings-desc">将所有训练数据导出为 JSON 文件</div></div>
@@ -412,13 +468,33 @@ async function exportData() {
   try {
     const data = await DB.exportAll();
     const json = JSON.stringify(data, null, 2);
+    const dateStr = new Date().toISOString().split('T')[0];
+    const fileName = 'fittracker-backup-' + dateStr + '.json';
     const blob = new Blob([json], { type: 'application/json' });
+
+    // 手机端优先使用 Web Share API（可以直接分享到微信/云盘/邮件）
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], fileName, { type: 'application/json' })] })) {
+      const file = new File([blob], fileName, { type: 'application/json' });
+      try {
+        await navigator.share({
+          title: 'FitTracker 数据备份',
+          text: '健身训练数据备份文件',
+          files: [file]
+        });
+        showToast('📤 数据已分享 ✓');
+        return;
+      } catch (shareErr) {
+        if (shareErr.name === 'AbortError') return; // 用户取消分享
+        // 分享失败，降级为下载
+      }
+    }
+
+    // 降级：直接下载文件
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0];
-    a.href = url; a.download = 'fittracker-backup-' + dateStr + '.json'; a.click();
+    a.href = url; a.download = fileName; a.click();
     URL.revokeObjectURL(url);
-    showToast('数据已导出 ✓', 2500);
+    showToast('数据已导出 ✓，请保存文件到云盘或发送给自己', 3500);
   } catch (e) { showToast('导出失败：' + e.message); }
 }
 
@@ -487,6 +563,32 @@ async function confirmClearAll() {
 async function initApp() {
   try {
     await DB.init();
+
+    // 初始化文件同步模块
+    await FileSync.init();
+
+    // 检查是否需要显示欢迎界面（首次打开 + 无数据 + API可用）
+    const showWelcome = await FileSync.shouldShowWelcome();
+    if (showWelcome) {
+      FileSync.showWelcomeUI();
+      return;
+    }
+
+    // 如果文件同步已初始化且文件夹中有数据但 IndexedDB 是空的
+    // （比如换浏览器后，handle 还有效但 IndexedDB 是新的）
+    if (FileSync._dirHandle) {
+      const plans = await DB.plans.getAll();
+      const records = await DB.records.getAll();
+      if (plans.length === 0 && records.length === 0) {
+        // 尝试从文件夹加载已有数据
+        const existingData = await FileSync._readFromDir(FileSync._dirHandle);
+        if (existingData) {
+          await DB.importAll(existingData);
+          showToast('📂 已从文件夹自动恢复数据 ✓');
+        }
+      }
+    }
+
     State._plans = await DB.plans.getAll();
     await renderPage('today');
   } catch (e) {
