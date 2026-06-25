@@ -180,15 +180,17 @@ a { text-decoration: none; color: inherit; }
 /* ===== Today Page ===== */
 .today-greeting {
   margin-bottom: 16px;
+  padding-top: 4px;
 }
 .greeting-text {
-  font-size: 22px; font-weight: 800;
+  font-size: 24px; font-weight: 800;
   background: linear-gradient(135deg, var(--primary) 0%, #a855f7 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  line-height: 1.2;
 }
-.greeting-date { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.greeting-date { font-size: 14px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
 
 .today-stats {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;
@@ -457,16 +459,52 @@ a { text-decoration: none; color: inherit; }
 .exercise-add-row .form-group { flex: 1; margin-bottom: 0; }
 
 /* ===== Exercise Edit List ===== */
-.edit-exercise-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.edit-exercise-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 
 .edit-exercise-item {
-  display: flex; align-items: center; gap: 8px;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-secondary);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  padding: 12px 14px;
+  gap: 0;
 }
-.edit-exercise-name { flex: 1; font-size: 14px; font-weight: 500; }
-.edit-exercise-detail { font-size: 12px; color: var(--text-muted); min-width: 80px; text-align: right; }
+
+.edit-exercise-item > div[style*="flex"] {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+}
+
+.edit-exercise-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: calc(100% - 140px);
+  word-break: keep-all;
+}
+.edit-exercise-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 编辑计划中删除按钮 */
+.edit-exercise-item .btn-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+}
 
 /* ===== History Page ===== */
 .calendar-nav {
@@ -820,9 +858,9 @@ a { text-decoration: none; color: inherit; }
   border-color: var(--success);
   font-size: 11px;
 }
-.exercise-tile-info { flex: 1; min-width: 0; }
-.exercise-tile-name { font-size: 15px; font-weight: 600; color: var(--text); }
-.exercise-tile-detail { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.exercise-tile-info { flex: 1; min-width: 0; overflow: hidden; }
+.exercise-tile-name { font-size: 15px; font-weight: 600; color: var(--text); word-break: keep-all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exercise-tile-detail { font-size: 12px; color: var(--text-secondary); margin-top: 2px; word-break: break-all; line-height: 1.4; }
 .exercise-tile-right {
   display: flex; align-items: center; gap: 8px; flex-shrink: 0;
 }
@@ -1111,11 +1149,12 @@ a { text-decoration: none; color: inherit; }
 }
 .intensity-group-item {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
   background: rgba(99,102,241,0.06);
   border: 1px solid rgba(99,102,241,0.12);
   font-size: 13px;
+  min-height: 44px;
 }
 .intensity-group-item.done-group {
   background: rgba(34,197,94,0.08);
@@ -1126,10 +1165,10 @@ a { text-decoration: none; color: inherit; }
   border-color: rgba(99,102,241,0.3);
   font-weight: 600;
 }
-.ig-label { font-weight: 600; color: var(--primary); min-width: 30px; }
+.ig-label { font-weight: 700; color: var(--primary); min-width: 36px; flex-shrink: 0; }
 .ig-label.done-label { color: var(--success); }
-.ig-detail { flex: 1; color: var(--text-secondary); }
-.ig-progress { font-size: 12px; font-weight: 700; color: var(--primary); }
+.ig-detail { flex: 1; color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig-progress { font-size: 13px; font-weight: 700; color: var(--primary); flex-shrink: 0; margin-left: 4px; }
 .ig-progress.done-progress { color: var(--success); }
 
 /* 计划编辑模态框 - 强度分组（移动端优化布局） */
@@ -1338,4 +1377,97 @@ a { text-decoration: none; color: inherit; }
 .file-sync-badge.inactive {
   background: rgba(148, 163, 184, 0.1);
   color: var(--text-muted);
+}
+
+/* ===== Capacitor / 移动端全局优化 ===== */
+/* 安全区域适配（Android 状态栏 + iOS 刘海） */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .app-header {
+    padding-top: env(safe-area-inset-top);
+    height: calc(var(--header-h) + env(safe-area-inset-top));
+  }
+  .app-main {
+    margin-top: calc(var(--header-h) + env(safe-area-inset-top));
+  }
+}
+
+/* Capacitor WebView 中禁止整体回弹 */
+body.capacitor-body {
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 模态框移动端优化 - 底部弹出时留足空间 */
+.modal-content {
+  max-height: 92vh;
+  -webkit-overflow-scrolling: touch;
+}
+.modal-content input:focus,
+.modal-content textarea:focus {
+  scroll-margin-bottom: 280px; /* 键盘弹出时的滚动偏移 */
+}
+
+/* 动作名称防溢出 */
+.exercise-tile-name {
+  word-break: keep-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exercise-name {
+  word-break: keep-all;
+}
+
+/* 今日计划卡片内强度组在极窄屏幕下的适配 */
+@media screen and (max-width: 380px) {
+  .intensity-group-item {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .ig-label { font-size: 12px; min-width: 32px; }
+  .ig-detail { font-size: 12px; }
+  .ig-progress { font-size: 12px; }
+
+  .exercise-tile-name { font-size: 14px; }
+  .exercise-tile-detail { font-size: 11px; }
+
+  .stat-value { font-size: 20px; }
+  .today-stats { gap: 8px; }
+  .stat-card { padding: 10px 8px; }
+
+  .edit-exercise-name {
+    font-size: 14px;
+    max-width: calc(100% - 120px);
+  }
+}
+
+/* 小屏手机适配 */
+@media screen and (max-width: 340px) {
+  .intensity-group-item {
+    flex-wrap: wrap;
+    padding: 8px;
+  }
+  .ig-detail {
+    flex-basis: 100%;
+    order: 3;
+    white-space: normal;
+    margin-top: 2px;
+  }
+  .ig-progress { margin-left: auto; }
+
+  .edit-exercise-name { font-size: 13px; max-width: calc(100% - 100px); }
+  .plan-card { padding: 12px; }
+  .checkin-btn { padding: 12px; font-size: 14px; }
+}
+
+/* 触摸优化：增大可点击区域最小尺寸 */
+.btn-icon, .set-btn, .exercise-check, .exercise-tile-check,
+.nav-item, .icon-btn {
+  min-height: 40px;
+  min-width: 40px;
+}
+
+/* 输入框聚焦时不放大（iOS） */
+.form-input, .form-select, .form-textarea {
+  font-size: 16px !important;
 }

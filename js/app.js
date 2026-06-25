@@ -767,11 +767,11 @@ function showPlanModal(plan) {
 
   const exListHtml = () => _modalExercises.map((ex, i) => {
     const spec = exerciseSpecText(ex);
-    return `<div class="edit-exercise-item" id="edit-ex-${i}" style="flex-direction:column;align-items:flex-start;gap:6px">
-      <div style="display:flex;align-items:center;gap:8px;width:100%">
+    return `<div class="edit-exercise-item" id="edit-ex-${i}">
+      <div style="display:flex;align-items:center;gap:8px;width:100%;overflow:hidden">
         <div class="edit-exercise-name">${ex.name}</div>
         <div class="edit-exercise-detail">${spec}</div>
-        <button class="btn btn-icon btn-ghost" onclick="removeEditExercise(${i})" style="font-size:16px;color:var(--danger)">×</button>
+        <button class="btn btn-icon btn-ghost" onclick="removeEditExercise(${i})" style="flex-shrink:0;font-size:18px;color:var(--danger);min-width:32px;min-height:32px">×</button>
       </div>
     </div>`;
   }).join('');
@@ -886,11 +886,11 @@ function addEditExercise() {
 function refreshEditExList() {
   document.getElementById('editExList').innerHTML = _modalExercises.map((ex, i) => {
     const nex = normalizeExercise(ex);
-    return `<div class="edit-exercise-item" id="edit-ex-${i}" style="flex-direction:column;align-items:flex-start;gap:6px">
-      <div style="display:flex;align-items:center;gap:8px;width:100%">
+    return `<div class="edit-exercise-item" id="edit-ex-${i}">
+      <div style="display:flex;align-items:center;gap:8px;width:100%;overflow:hidden">
         <div class="edit-exercise-name">${nex.name}</div>
         <div class="edit-exercise-detail">${exerciseSpecText(nex)}</div>
-        <button class="btn btn-icon btn-ghost" onclick="removeEditExercise(${i})" style="font-size:16px;color:var(--danger)">×</button>
+        <button class="btn btn-icon btn-ghost" onclick="removeEditExercise(${i})" style="flex-shrink:0;font-size:18px;color:var(--danger);min-width:32px;min-height:32px">×</button>
       </div>
     </div>`;
   }).join('');
