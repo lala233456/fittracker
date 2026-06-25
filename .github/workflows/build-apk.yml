@@ -10,7 +10,6 @@ permissions:
 
 env:
   ANDROID_HOME: /usr/local/lib/android/sdk
-  JAVA_HOME: ${{ steps.setup-java.outputs.path }}
 
 jobs:
   build:
